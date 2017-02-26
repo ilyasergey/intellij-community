@@ -321,6 +321,6 @@ class TeamCityBuildLocator {
 
   String getDownloadUrl(String buildNumber) {
     String encodedBuildNumber = URLEncoder.encode(buildNumber, "UTF-8")
-    return "$host/guestAuth/repository/download/$buildTypeId/$encodedBuildNumber/kotlin-plugin-$encodedBuildNumber-IJ2017.1-1.zip"
+    return "https://teamcity.jetbrains.com/guestAuth/repository/download/Kotlin_110_CompilerAndPlugin_NoTests/996646:id/kotlin-plugin-1.1.0-release-IJ2017.1-1.zip"
   }
 }
