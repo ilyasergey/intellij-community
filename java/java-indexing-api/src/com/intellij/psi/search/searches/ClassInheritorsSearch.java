@@ -23,11 +23,9 @@ import com.intellij.openapi.util.Conditions;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.SmartPointerManager;
+import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.psi.search.SearchScope;
-import com.intellij.util.AbstractQuery;
-import com.intellij.util.FilteredQuery;
-import com.intellij.util.Query;
-import com.intellij.util.QueryExecutor;
+import com.intellij.util.*;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
@@ -142,8 +140,9 @@ public class ClassInheritorsSearch extends ExtensibleQueryFactory<PsiClass, Clas
       }
       return AbstractQuery.wrapInReadAction(directQuery);
     }
-    return INSTANCE.createUniqueResultsQuery(parameters, ContainerUtil.canonicalStrategy(),
-                                             psiClass -> ReadAction.compute(() -> SmartPointerManager.getInstance(psiClass.getProject()).createSmartPsiElementPointer(psiClass)));
+    final Function<PsiClass, SmartPsiElementPointer<PsiClass>> function =
+      psiClass -> ReadAction.compute(() -> SmartPointerManager.getInstance(psiClass.getProject()).createSmartPsiElementPointer(psiClass));
+    return INSTANCE.createUniqueResultsQuery(parameters, ContainerUtil.canonicalStrategy(), function);
   }
 
   /**
