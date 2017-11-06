@@ -15,6 +15,8 @@
  */
 package org.jetbrains.jps.backwardRefs;
 
+import com.intellij.util.Function;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.indexing.InvertedIndex;
 import org.jetbrains.annotations.NotNull;
@@ -45,16 +47,24 @@ public class BackwardReferenceIndexWriter {
     myIndex = index;
   }
 
-  Exception getRebuildRequestCause() {
+  Throwable getRebuildRequestCause() {
     return myIndex.getRebuildRequestCause();
   }
 
-  public static void closeIfNeed() {
+  void setRebuildCause(Throwable e) {
+    myIndex.setRebuildRequestCause(e);
+  }
+
+  public static void closeIfNeed(boolean clearIndex) {
     if (ourInstance != null) {
+      File dir = clearIndex ? ourInstance.myIndex.getIndicesDir() : null;
       try {
         ourInstance.close();
       } finally {
         ourInstance = null;
+        if (dir != null) {
+          FileUtil.delete(dir);
+        }
       }
     }
   }
@@ -63,7 +73,7 @@ public class BackwardReferenceIndexWriter {
     return ourInstance;
   }
 
-  static void initialize(@NotNull final CompileContext context) {
+  static void initialize(@NotNull final CompileContext context, int attempt) {
     final BuildDataManager dataManager = context.getProjectDescriptor().dataManager;
     final File buildDir = dataManager.getDataPaths().getDataStorageRoot();
     if (isEnabled()) {
@@ -77,16 +87,16 @@ public class BackwardReferenceIndexWriter {
         CompilerBackwardReferenceIndex.removeIndexFiles(buildDir);
       }
       else if (CompilerBackwardReferenceIndex.versionDiffers(buildDir)) {
-        if (areAllJavaModulesAffected(context)) {
+        CompilerBackwardReferenceIndex.removeIndexFiles(buildDir);
+        if ((attempt == 0 && areAllJavaModulesAffected(context)) ) {
           throw new BuildDataCorruptedException("backward reference index should be updated to actual version");
         } else {
           // do not request a rebuild if a project is affected incompletely and version is changed, just disable indices
-          CompilerBackwardReferenceIndex.removeIndexFiles(buildDir);
         }
       }
 
       if (CompilerBackwardReferenceIndex.exist(buildDir) || isRebuild) {
-        ourInstance = new BackwardReferenceIndexWriter(new CompilerBackwardReferenceIndex(buildDir));
+        ourInstance = new BackwardReferenceIndexWriter(new CompilerBackwardReferenceIndex(buildDir, false));
       }
     } else {
       CompilerBackwardReferenceIndex.removeIndexFiles(buildDir);
@@ -97,11 +107,11 @@ public class BackwardReferenceIndexWriter {
     return SystemProperties.getBooleanProperty(PROP_KEY, false);
   }
 
-  synchronized LightRef.JavaLightClassRef asClassUsage(JavacRef aClass) {
+  synchronized LightRef.JavaLightClassRef asClassUsage(JavacRef aClass) throws IOException {
     return new LightRef.JavaLightClassRef(id(aClass, myIndex.getByteSeqEum()));
   }
 
-  void processDeletedFiles(Collection<String> files) {
+  void processDeletedFiles(Collection<String> files) throws IOException {
     for (String file : files) {
       writeData(enumeratePath(new File(file).getPath()), null);
     }
@@ -113,13 +123,8 @@ public class BackwardReferenceIndexWriter {
     }
   }
 
-  synchronized int enumeratePath(String file) {
-    try {
-      return myIndex.getFilePathEnumerator().enumerate(file);
-    }
-    catch (IOException e) {
-      throw new BuildDataCorruptedException(e);
-    }
+  synchronized int enumeratePath(String file) throws IOException {
+    return myIndex.getFilePathEnumerator().enumerate(file);
   }
 
   private void close() {
@@ -127,7 +132,7 @@ public class BackwardReferenceIndexWriter {
   }
 
   @Nullable
-  LightRef enumerateNames(JavacRef ref) {
+  LightRef enumerateNames(JavacRef ref, Function<String, Integer> ownerIdReplacer) throws IOException {
     NameEnumerator nameEnumerator = myIndex.getByteSeqEum();
     if (ref instanceof JavacRef.JavacClass) {
       if (!isPrivate(ref) && !((JavacRef.JavacClass)ref).isAnonymous()) {
@@ -135,16 +140,17 @@ public class BackwardReferenceIndexWriter {
       }
     }
     else {
-      String ownerName = ref.getOwnerName();
       if (isPrivate(ref)) {
         return null;
       }
+      String ownerName = ref.getOwnerName();
+      final Integer ownerPrecalculatedId = ownerIdReplacer.fun(ownerName);
       if (ref instanceof JavacRef.JavacField) {
-        return new LightRef.JavaLightFieldRef(id(ownerName, nameEnumerator), id(ref, nameEnumerator));
+        return new LightRef.JavaLightFieldRef(ownerPrecalculatedId != null ? ownerPrecalculatedId : id(ownerName, nameEnumerator), id(ref, nameEnumerator));
       }
       else if (ref instanceof JavacRef.JavacMethod) {
         int paramCount = ((JavacRef.JavacMethod) ref).getParamCount();
-        return new LightRef.JavaLightMethodRef(id(ownerName, nameEnumerator), id(ref, nameEnumerator), paramCount);
+        return new LightRef.JavaLightMethodRef(ownerPrecalculatedId != null ? ownerPrecalculatedId : id(ownerName, nameEnumerator), id(ref, nameEnumerator), paramCount);
       }
       else {
         throw new AssertionError("unexpected symbol: " + ref + " class: " + ref.getClass());
@@ -157,18 +163,12 @@ public class BackwardReferenceIndexWriter {
     return ref.getModifiers().contains(Modifier.PRIVATE);
   }
 
-  private int id(JavacRef ref, NameEnumerator nameEnumerator) {
+  private static int id(JavacRef ref, NameEnumerator nameEnumerator) throws IOException {
     return id(ref.getName(), nameEnumerator);
   }
 
-  private int id(String name, NameEnumerator nameEnumerator) {
-    try {
-      return nameEnumerator.enumerate(name);
-    }
-    catch (IOException ex) {
-      myIndex.setRebuildRequestCause(ex);
-      return 0;
-    }
+  private static int id(String name, NameEnumerator nameEnumerator) throws IOException {
+    return nameEnumerator.enumerate(name);
   }
 
   private static boolean isRebuildInAllJavaModules(CompileContext context) {

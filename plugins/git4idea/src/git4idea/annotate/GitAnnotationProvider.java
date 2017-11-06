@@ -28,11 +28,7 @@ import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.annotate.FileAnnotation;
-import com.intellij.openapi.vcs.history.VcsAbstractHistorySession;
-import com.intellij.openapi.vcs.history.VcsFileRevision;
-import com.intellij.openapi.vcs.history.VcsHistoryCache;
-import com.intellij.openapi.vcs.history.VcsFileRevisionEx;
-import com.intellij.openapi.vcs.history.VcsRevisionNumber;
+import com.intellij.openapi.vcs.history.*;
 import com.intellij.openapi.vcs.vfs.VcsFileSystem;
 import com.intellij.openapi.vcs.vfs.VcsVirtualFile;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -49,6 +45,7 @@ import git4idea.GitVcs;
 import git4idea.annotate.GitFileAnnotation.LineInfo;
 import git4idea.commands.GitCommand;
 import git4idea.commands.GitSimpleHandler;
+import git4idea.history.GitFileHistory;
 import git4idea.history.GitHistoryProvider;
 import git4idea.history.GitHistoryUtils;
 import git4idea.i18n.GitBundle;
@@ -70,6 +67,7 @@ public class GitAnnotationProvider implements AnnotationProviderEx {
   @NonNls private static final String AUTHOR_KEY = "author";
   @NonNls private static final String AUTHOR_EMAIL_KEY = "author-mail";
   @NonNls private static final String COMMITTER_TIME_KEY = "committer-time";
+  @NonNls private static final String AUTHOR_TIME_KEY = "author-time";
   private static final Logger LOG = Logger.getInstance(GitAnnotationProvider.class);
 
   @NotNull private final VcsHistoryCache myCache;
@@ -129,7 +127,6 @@ public class GitAnnotationProvider implements AnnotationProviderEx {
                                      @Nullable final VcsRevisionNumber revision,
                                      @NotNull final VirtualFile file) throws VcsException {
     GitVcs vcs = GitVcs.getInstance(myProject);
-    assert vcs != null;
 
     VcsRevisionNumber actualRevision = revision != null ? revision : vcs.getDiffProvider().getCurrentRevision(file);
 
@@ -157,6 +154,7 @@ public class GitAnnotationProvider implements AnnotationProviderEx {
     GitSimpleHandler h = new GitSimpleHandler(myProject, root, GitCommand.BLAME);
     h.setStdoutSuppressed(true);
     h.addParameters("--porcelain", "-l", "-t", "-w");
+    h.addParameters("--encoding=UTF-8");
     if (revision == null) {
       h.addParameters("HEAD");
     }
@@ -186,7 +184,7 @@ public class GitAnnotationProvider implements AnnotationProviderEx {
             return loadFileHistory(filePath);
           }
           else {
-            return GitHistoryUtils.history(myProject, filePath, null, currentRevision);
+            return GitFileHistory.collectHistoryForRevision(myProject, filePath, currentRevision);
           }
         }
         catch (VcsException e) {
@@ -213,7 +211,6 @@ public class GitAnnotationProvider implements AnnotationProviderEx {
   @Nullable
   private List<VcsFileRevision> loadFileHistory(@NotNull FilePath filePath) throws VcsException {
     GitVcs vcs = GitVcs.getInstance(myProject);
-    if (vcs == null) return null;
     GitHistoryProvider historyProvider = vcs.getVcsHistoryProvider();
 
     VcsAbstractHistorySession cachedSession = myCache.getFull(filePath, vcs.getKeyInstanceMethod(), historyProvider);
@@ -263,6 +260,7 @@ public class GitAnnotationProvider implements AnnotationProviderEx {
           String subject = null;
           String authorName = null;
           String authorEmail = null;
+          Date authorDate = null;
           String previousRevision = null;
           FilePath previousFilePath = null;
 
@@ -274,6 +272,9 @@ public class GitAnnotationProvider implements AnnotationProviderEx {
             }
             else if (AUTHOR_KEY.equals(key)) {
               authorName = value;
+            }
+            else if (AUTHOR_TIME_KEY.equals(key)) {
+              authorDate = GitUtil.parseTimestamp(value);
             }
             else if (COMMITTER_TIME_KEY.equals(key)) {
               committerDate = GitUtil.parseTimestamp(value);
@@ -296,11 +297,11 @@ public class GitAnnotationProvider implements AnnotationProviderEx {
             }
           }
 
-          if (committerDate == null || filePath == null || authorName == null || authorEmail == null || subject == null) {
+          if (authorDate == null || committerDate == null || filePath == null || authorName == null || authorEmail == null || subject == null) {
             throw new VcsException("Output for line " + lineNum + " lacks necessary data");
           }
 
-          GitRevisionNumber revisionNumber = new GitRevisionNumber(commitHash, committerDate);
+          GitRevisionNumber revisionNumber = new GitRevisionNumber(commitHash);
           VcsUser author = myUserRegistry.createUser(authorName, authorEmail);
           GitRevisionNumber previousRevisionNumber = previousRevision != null ? new GitRevisionNumber(previousRevision) : null;
 
@@ -308,7 +309,7 @@ public class GitAnnotationProvider implements AnnotationProviderEx {
           filePath = pathInterner.intern(filePath);
           if (previousFilePath != null) previousFilePath = pathInterner.intern(previousFilePath);
 
-          commit = new LineInfo(myProject, revisionNumber, filePath, committerDate, author, subject,
+          commit = new LineInfo(myProject, revisionNumber, filePath, committerDate, authorDate, author, subject,
                                 previousRevisionNumber, previousFilePath);
           commits.put(commitHash, commit);
         }

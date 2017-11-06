@@ -1,18 +1,16 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 package com.intellij.openapi.ui;
 
 import com.intellij.CommonBundle;
@@ -44,7 +42,6 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.plaf.basic.BasicHTML;
 import javax.swing.text.JTextComponent;
-import javax.swing.text.html.HTMLEditorKit;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ItemEvent;
@@ -110,6 +107,24 @@ public class Messages {
   @NotNull
   public static Icon getQuestionIcon() {
     return UIUtil.getQuestionIcon();
+  }
+
+  @NotNull
+  public static Runnable createMessageDialogRemover(@Nullable Project project) {
+    Window projectWindow = project == null ? null : WindowManager.getInstance().suggestParentWindow(project);
+    return () -> UIUtil.invokeLaterIfNeeded(() -> makeCurrentMessageDialogGoAway(
+      projectWindow != null ? projectWindow.getOwnedWindows() : Window.getWindows()));
+  }
+
+  private static void makeCurrentMessageDialogGoAway(@NotNull Window[] checkWindows) {
+    for (Window w : checkWindows) {
+      JDialog dialog = w instanceof JDialog ? (JDialog)w : null;
+      if (dialog == null || !dialog.isModal()) continue;
+      JButton cancelButton = UIUtil.uiTraverser(dialog.getRootPane()).filter(JButton.class)
+        .filter(b -> CommonBundle.getCancelButtonText().equals(b.getText()))
+        .first();
+      if (cancelButton != null) cancelButton.doClick();
+    }
   }
 
   /**
@@ -886,7 +901,7 @@ public class Messages {
   }
 
   /**
-   * @return trimmed input string or <code>null</code> if user cancelled dialog.
+   * @return trimmed input string or {@code null} if user cancelled dialog.
    */
   @Nullable
   public static String showPasswordDialog(@Nls String message, @Nls(capitalization = Nls.Capitalization.Title) String title) {
@@ -894,7 +909,7 @@ public class Messages {
   }
 
   /**
-   * @return trimmed input string or <code>null</code> if user cancelled dialog.
+   * @return trimmed input string or {@code null} if user cancelled dialog.
    */
   @Nullable
   public static String showPasswordDialog(Project project, @Nls String message, @Nls(capitalization = Nls.Capitalization.Title) String title, @Nullable Icon icon) {
@@ -902,7 +917,7 @@ public class Messages {
   }
 
   /**
-   * @return trimmed input string or <code>null</code> if user cancelled dialog.
+   * @return trimmed input string or {@code null} if user cancelled dialog.
    */
   @Nullable
   public static String showPasswordDialog(@Nullable Project project,
@@ -921,7 +936,7 @@ public class Messages {
   }
 
   /**
-   * @return trimmed input string or <code>null</code> if user cancelled dialog.
+   * @return trimmed input string or {@code null} if user cancelled dialog.
    */
   @Nullable
   public static String showInputDialog(@Nullable Project project, String message, @Nls(capitalization = Nls.Capitalization.Title) String title, @Nullable Icon icon) {
@@ -929,7 +944,7 @@ public class Messages {
   }
 
   /**
-   * @return trimmed input string or <code>null</code> if user cancelled dialog.
+   * @return trimmed input string or {@code null} if user cancelled dialog.
    */
   @Nullable
   public static String showInputDialog(@NotNull Component parent, String message, @Nls(capitalization = Nls.Capitalization.Title) String title, @Nullable Icon icon) {
@@ -1585,10 +1600,7 @@ public class Messages {
     UIUtil.FontSize fixedFontSize = fontSize == null ? UIUtil.FontSize.NORMAL : fontSize;
     messageComponent.setFont(UIUtil.getLabelFont(fixedFontSize));
     if (BasicHTML.isHTMLString(message)) {
-      HTMLEditorKit editorKit = UIUtil.getHTMLEditorKit();
-      Font font = UIUtil.getLabelFont(fixedFontSize);
-      editorKit.getStyleSheet().addRule(UIUtil.displayPropertiesToCSS(font, UIUtil.getLabelForeground()));
-      messageComponent.setEditorKit(editorKit);
+      messageComponent.setEditorKit(UIUtil.getHTMLEditorKit());
     }
     messageComponent.setText(message);
     messageComponent.setEditable(false);
@@ -1596,14 +1608,7 @@ public class Messages {
       messageComponent.setCaretPosition(0);
     }
 
-    if (UIUtil.isUnderNimbusLookAndFeel()) {
-      messageComponent.setOpaque(false);
-      messageComponent.setBackground(UIUtil.TRANSPARENT_COLOR);
-    }
-    else {
-      messageComponent.setBackground(UIUtil.getOptionPaneBackground());
-    }
-
+    messageComponent.setBackground(UIUtil.getOptionPaneBackground());
     messageComponent.setForeground(UIUtil.getLabelForeground());
     return messageComponent;
   }
@@ -1808,9 +1813,13 @@ public class Messages {
       }
 
       myField = createTextFieldComponent();
-      messagePanel.add(myField, BorderLayout.SOUTH);
+      messagePanel.add(createScrollableTextComponent(), BorderLayout.SOUTH);
 
       return messagePanel;
+    }
+
+    protected JComponent createScrollableTextComponent() {
+      return myField;
     }
 
     protected JComponent createTextComponent() {
@@ -1823,7 +1832,7 @@ public class Messages {
         textLabel.setUI(new MultiLineLabelUI());
         textComponent = textLabel;
       }
-      textComponent.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
+      textComponent.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 20));
       return textComponent;
     }
 
@@ -1864,6 +1873,11 @@ public class Messages {
     @Override
     protected JTextComponent createTextFieldComponent() {
       return new JTextArea(7, 50);
+    }
+
+    @Override
+    protected JComponent createScrollableTextComponent() {
+      return new JBScrollPane(myField);
     }
   }
 
@@ -1915,7 +1929,7 @@ public class Messages {
       }
 
       myField = createTextFieldComponent();
-      messagePanel.add(myField, BorderLayout.CENTER);
+      messagePanel.add(createScrollableTextComponent(), BorderLayout.CENTER);
 
       myCheckBox = new JCheckBox();
       messagePanel.add(myCheckBox, BorderLayout.SOUTH);

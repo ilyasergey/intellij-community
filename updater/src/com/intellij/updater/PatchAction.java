@@ -21,6 +21,7 @@ import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -87,7 +88,7 @@ public abstract class PatchAction {
     if (optional) myFlags |= OPTIONAL; else myFlags &= ~OPTIONAL;
   }
 
-  protected static FileType getFileType(File file) throws IOException {
+  protected static FileType getFileType(File file) {
     if (Utils.isLink(file)) return FileType.SYMLINK;
     if (Utils.isExecutable(file)) return FileType.EXECUTABLE_FILE;
     return FileType.REGULAR_FILE;
@@ -134,10 +135,11 @@ public abstract class PatchAction {
 
   protected abstract ValidationResult validate(File toDir) throws IOException;
 
-  protected ValidationResult doValidateAccess(File toFile, ValidationResult.Action action) {
+  protected ValidationResult doValidateAccess(File toFile, ValidationResult.Action action, boolean checkWriteable) {
     if (!toFile.exists() || toFile.isDirectory()) return null;
     ValidationResult result = validateProcessLock(toFile, action);
     if (result != null) return result;
+    if (!checkWriteable) return null;
     if (toFile.canRead() && toFile.canWrite() && isWritable(toFile)) return null;
     ValidationResult.Option[] options = {myPatch.isStrict() ? ValidationResult.Option.NONE : ValidationResult.Option.IGNORE};
     return new ValidationResult(ValidationResult.Kind.ERROR, myPath, action, ValidationResult.ACCESS_DENIED_MESSAGE, options);
@@ -148,7 +150,7 @@ public abstract class PatchAction {
       return lock != null;
     }
     catch (OverlappingFileLockException | IOException e) {
-      Runner.printStackTrace(e);
+      Runner.logger().warn(toFile, e);
       return false;
     }
   }
@@ -225,18 +227,16 @@ public abstract class PatchAction {
 
     PatchAction that = (PatchAction)o;
 
-    if (myFlags != that.myFlags) return false;
     if (myChecksum != that.myChecksum) return false;
-    if (myPath != null ? !myPath.equals(that.myPath) : that.myPath != null) return false;
+    if (!Objects.equals(myPath, that.myPath)) return false;
 
     return true;
   }
 
   @Override
   public int hashCode() {
-    int result = myPath != null ? myPath.hashCode() : 0;
+    int result = Objects.hashCode(myPath);
     result = 31 * result + (int)(myChecksum ^ (myChecksum >>> 32));
-    result = 31 * result + myFlags;
     return result;
   }
 }

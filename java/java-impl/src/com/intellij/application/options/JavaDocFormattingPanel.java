@@ -22,6 +22,7 @@ import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.ui.OnePixelDivider;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider;
 import com.intellij.ui.border.CustomLineBorder;
 import org.jetbrains.annotations.NotNull;
@@ -99,6 +100,8 @@ public class JavaDocFormattingPanel extends OptionTreeWithPreviewPanel {
     initBooleanField("JD_DO_NOT_WRAP_ONE_LINE_COMMENTS", ApplicationBundle.message("checkbox.do.not.wrap.one.line.comments"), OTHER_GROUP);
     initBooleanField("JD_PRESERVE_LINE_FEEDS", ApplicationBundle.message("checkbox.preserve.line.feeds"), OTHER_GROUP);
     initBooleanField("JD_PARAM_DESCRIPTION_ON_NEW_LINE", ApplicationBundle.message("checkbox.param.description.on.new.line"), OTHER_GROUP);
+
+    initBooleanField("JD_INDENT_ON_CONTINUATION", ApplicationBundle.message("checkbox.param.indent.on.continuation"), OTHER_GROUP);
   }
 
   protected int getRightMargin() {
@@ -150,17 +153,18 @@ public class JavaDocFormattingPanel extends OptionTreeWithPreviewPanel {
 
   public void apply(CodeStyleSettings settings) {
     super.apply(settings);
-    settings.ENABLE_JAVADOC_FORMATTING = myEnableCheckBox.isSelected();
+    settings.getCustomSettings(JavaCodeStyleSettings.class).ENABLE_JAVADOC_FORMATTING = myEnableCheckBox.isSelected();
   }
 
   protected void resetImpl(final CodeStyleSettings settings) {
     super.resetImpl(settings);
-    myEnableCheckBox.setSelected(settings.ENABLE_JAVADOC_FORMATTING);
+    myEnableCheckBox.setSelected(settings.getCustomSettings(JavaCodeStyleSettings.class).ENABLE_JAVADOC_FORMATTING);
     update();
   }
 
   public boolean isModified(CodeStyleSettings settings) {
-    return super.isModified(settings) || myEnableCheckBox.isSelected() != settings.ENABLE_JAVADOC_FORMATTING;
+    return super.isModified(settings) ||
+           myEnableCheckBox.isSelected() != settings.getCustomSettings(JavaCodeStyleSettings.class).ENABLE_JAVADOC_FORMATTING;
   }
 
   @NotNull

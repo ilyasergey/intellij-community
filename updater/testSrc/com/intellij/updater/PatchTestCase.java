@@ -59,11 +59,24 @@ public abstract class PatchTestCase extends UpdaterTestCase {
                     new File(myNewerDir, "lib/boot2.jar"));
   }
 
-  protected Patch createPatch() throws IOException, OperationCancelledException {
-    PatchSpec spec = new PatchSpec()
+  protected Patch createPatch() throws IOException {
+    return createPatch(Function.identity());
+  }
+
+  protected Patch createPatch(Function<PatchSpec, PatchSpec> tuner) throws IOException {
+    PatchSpec spec = tuner.apply(new PatchSpec()
       .setOldFolder(myOlderDir.getAbsolutePath())
-      .setNewFolder(myNewerDir.getAbsolutePath());
+      .setNewFolder(myNewerDir.getAbsolutePath()));
     return new Patch(spec, TEST_UI);
+  }
+
+  protected void resetNewerDir() throws IOException {
+    FileUtil.delete(myNewerDir);
+    FileUtil.copyDir(myOlderDir, myNewerDir);
+  }
+
+  protected static Map<String, Long> digest(Patch patch, File dir) throws IOException {
+    return new TreeMap<>(patch.digestFiles(dir, Collections.emptyList(), false));
   }
 
   protected static List<PatchAction> sortActions(List<PatchAction> actions) {
@@ -78,8 +91,7 @@ public abstract class PatchTestCase extends UpdaterTestCase {
     // splits the list into groups
     Collection<List<T>> groups = list.stream().collect(groupingBy(classifier, LinkedHashMap::new, toList())).values();
     // verifies the list is monotonic
-    List<T> joined = groups.stream().reduce(new ArrayList<>(list.size()), (acc, elements) -> { acc.addAll(elements); return acc; });
-    assertThat(list).isEqualTo(joined);
+    assertThat(list).isEqualTo(groups.stream().flatMap(Collection::stream).collect(toList()));
     // sorts group elements and concatenates groups into a list
     return groups.stream()
       .map(elements -> elements.stream().sorted(sorter))

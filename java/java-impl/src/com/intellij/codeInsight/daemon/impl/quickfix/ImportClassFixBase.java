@@ -88,8 +88,7 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
       }
     }
 
-    PsiManager manager = file.getManager();
-    return manager.isInProject(file) && !getClassesToImport(true).isEmpty();
+    return !getClassesToImport(true).isEmpty();
   }
 
   @Nullable
@@ -166,7 +165,6 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
       classList = filtered;
     }
 
-    filterAlreadyImportedButUnresolved(classList);
     filerByPackageName(classList, file);
     return classList;
   }
@@ -291,6 +289,8 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
 
   public Result doFix(@NotNull final Editor editor, boolean allowPopup, final boolean allowCaretNearRef) {
     List<PsiClass> classesToImport = getClassesToImport();
+    //do not show popups for already imported classes when library is missing (show them for explicit action)
+    filterAlreadyImportedButUnresolved(classesToImport);
     if (classesToImport.isEmpty()) return Result.POPUP_NOT_SHOWN;
 
     try {

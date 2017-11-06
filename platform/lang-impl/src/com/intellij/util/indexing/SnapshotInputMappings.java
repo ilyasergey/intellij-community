@@ -22,7 +22,7 @@ import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.ThreadLocalCachedByteArray;
 import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream;
-import com.intellij.openapi.util.io.ByteSequence;
+import com.intellij.openapi.util.io.ByteArraySequence;
 import com.intellij.openapi.vfs.newvfs.persistent.PersistentFS;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
@@ -51,7 +51,7 @@ public class SnapshotInputMappings<Key, Value, Input> {
   private final DataExternalizer<Value> myValueExternalizer;
   private final IndexExtension<Key, Value, Input> myIndexExtension;
   private final DataIndexer<Key, Value, Input> myIndexer;
-  private volatile PersistentHashMap<Integer, ByteSequence> myContents;
+  private volatile PersistentHashMap<Integer, ByteArraySequence> myContents;
   private volatile PersistentHashMap<Integer, Integer> myInputsSnapshotMapping;
   private volatile PersistentHashMap<Integer, String> myIndexingTrace;
 
@@ -59,7 +59,7 @@ public class SnapshotInputMappings<Key, Value, Input> {
   private boolean myIsPsiBackedIndex;
 
   public SnapshotInputMappings(IndexExtension<Key, Value, Input> indexExtension) throws IOException {
-    myIndexId = indexExtension.getName();
+    myIndexId = (ID<Key, Value>)indexExtension.getName();
     myIsPsiBackedIndex = indexExtension instanceof PsiDependentIndex;
     mySnapshotIndexExternalizer = VfsAwareMapReduceIndex.createInputsIndexExternalizer(indexExtension);
     myValueExternalizer = indexExtension.getValueExternalizer();
@@ -72,7 +72,7 @@ public class SnapshotInputMappings<Key, Value, Input> {
   public Map<Key, Value> readInputKeys(int inputId) throws IOException {
     Integer currentHashId = readInputHashId(inputId);
     if (currentHashId != null) {
-      ByteSequence byteSequence = readContents(currentHashId);
+      ByteArraySequence byteSequence = readContents(currentHashId);
       if (byteSequence != null) {
         return deserializeSavedPersistentData(byteSequence);
       }
@@ -109,8 +109,8 @@ public class SnapshotInputMappings<Key, Value, Input> {
       FileContent fileContent = (FileContent)content;
       hashId = getHashOfContent(fileContent);
       if (doReadSavedPersistentData) {
-        if (!myContents.isBusyReading() || DebugAssertions.EXTRA_SANITY_CHECKS) { // avoid blocking read, we can calculate index value
-          ByteSequence bytes = readContents(hashId);
+        if (myContents == null || !myContents.isBusyReading() || DebugAssertions.EXTRA_SANITY_CHECKS) { // avoid blocking read, we can calculate index value
+          ByteArraySequence bytes = readContents(hashId);
 
           if (bytes != null) {
             data = deserializeSavedPersistentData(bytes);
@@ -225,7 +225,8 @@ public class SnapshotInputMappings<Key, Value, Input> {
       !SharedIndicesData.ourFileSharedIndicesEnabled || SharedIndicesData.DO_CHECKS ? createInputSnapshotMapping() : null;
   }
 
-  private PersistentHashMap<Integer, ByteSequence> createContentsIndex() throws IOException {
+  private PersistentHashMap<Integer, ByteArraySequence> createContentsIndex() throws IOException {
+    if (SharedIndicesData.ourFileSharedIndicesEnabled && !SharedIndicesData.DO_CHECKS) return null;
     final File saved = new File(IndexInfrastructure.getPersistentIndexRootDir(myIndexId), "values");
     try {
       return new PersistentHashMap<>(saved, EnumeratorIntegerDescriptor.INSTANCE, ByteSequenceDataExternalizer.INSTANCE);
@@ -306,12 +307,12 @@ public class SnapshotInputMappings<Key, Value, Input> {
     return myInputsSnapshotMapping.get(inputId);
   }
 
-  private ByteSequence readContents(Integer hashId) throws IOException {
+  private ByteArraySequence readContents(Integer hashId) throws IOException {
     if (SharedIndicesData.ourFileSharedIndicesEnabled) {
       if (SharedIndicesData.DO_CHECKS) {
         synchronized (myContents) {
-          ByteSequence contentBytes = SharedIndicesData.recallContentData(hashId, myIndexId, ByteSequenceDataExternalizer.INSTANCE);
-          ByteSequence contentBytesFromContents = myContents.get(hashId);
+          ByteArraySequence contentBytes = SharedIndicesData.recallContentData(hashId, myIndexId, ByteSequenceDataExternalizer.INSTANCE);
+          ByteArraySequence contentBytesFromContents = myContents.get(hashId);
 
           if ((contentBytes == null && contentBytesFromContents != null) ||
               !Comparing.equal(contentBytesFromContents, contentBytes)) {
@@ -331,7 +332,7 @@ public class SnapshotInputMappings<Key, Value, Input> {
     return myContents.get(hashId);
   }
 
-  private Map<Key, Value> deserializeSavedPersistentData(ByteSequence bytes) throws IOException {
+  private Map<Key, Value> deserializeSavedPersistentData(ByteArraySequence bytes) throws IOException {
     DataInputStream stream = new DataInputStream(new UnsyncByteArrayInputStream(bytes.getBytes(), bytes.getOffset(), bytes.getLength()));
     int pairs = DataInputOutputUtil.readINT(stream);
     if (pairs == 0) return Collections.emptyMap();
@@ -472,7 +473,7 @@ public class SnapshotInputMappings<Key, Value, Input> {
   }
 
   private void saveContents(int id, BufferExposingByteArrayOutputStream out) throws IOException {
-    ByteSequence byteSequence = new ByteSequence(out.getInternalBuffer(), 0, out.size());
+    ByteArraySequence byteSequence = new ByteArraySequence(out.getInternalBuffer(), 0, out.size());
     if (SharedIndicesData.ourFileSharedIndicesEnabled) {
       if (SharedIndicesData.DO_CHECKS) {
         synchronized (myContents) {

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.theoryinpractice.testng.model;
 
 import com.intellij.codeInsight.AnnotationUtil;
@@ -20,6 +6,7 @@ import com.intellij.execution.CantRunException;
 import com.intellij.execution.configurations.RuntimeConfigurationException;
 import com.intellij.execution.testframework.SourceScope;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
@@ -41,8 +28,8 @@ import java.util.*;
 public abstract class TestNGTestObject {
 
   public static final String[] GROUPS_CONFIGURATION = {BeforeGroups.class.getName(), AfterGroups.class.getName()};
-  
-  private static final Logger LOG = Logger.getInstance("#" + TestNGTestObject.class.getName());
+
+  private static final Logger LOG = Logger.getInstance(TestNGTestObject.class);
   protected final TestNGConfiguration myConfig;
 
   public TestNGTestObject(TestNGConfiguration config) {
@@ -146,7 +133,7 @@ public abstract class TestNGTestObject {
 
   private static void collectGroupsMembers(final String annotationFqn,
                                            final Set<String> groups,
-                                           final boolean skipUnrelated, 
+                                           final boolean skipUnrelated,
                                            final Map<PsiClass, Map<PsiMethod, List<String>>> results,
                                            final Set<PsiMember> alreadyMarkedToBeChecked,
                                            final GlobalSearchScope searchScope,
@@ -226,7 +213,7 @@ public abstract class TestNGTestObject {
                                         Map<PsiClass, Map<PsiMethod, List<String>>> results) {
     final PsiMethod[] psiMethods = containingClass.findMethodsByName(methodName, true);
     for (PsiMethod method : psiMethods) {
-      if (AnnotationUtil.isAnnotated(method, TestNGUtil.TEST_ANNOTATION_FQN, false) &&
+      if (AnnotationUtil.isAnnotated(method, TestNGUtil.TEST_ANNOTATION_FQN, 0) &&
           appendMember(method, alreadyMarkedToBeChecked, results)) {
         membersToCheckNow.add(method);
       }
@@ -247,7 +234,7 @@ public abstract class TestNGTestObject {
       }
     }
     if (psiMember instanceof PsiMethod) {
-      final boolean add = psiMethods.put((PsiMethod)psiMember, Collections.<String>emptyList()) != null;
+      final boolean add = psiMethods.put((PsiMethod)psiMember, Collections.emptyList()) != null;
       if (add) {
         return underConsideration.add(psiMember);
       }
@@ -276,13 +263,7 @@ public abstract class TestNGTestObject {
                                         final PsiClass psiClass,
                                         final String methodName,
                                         final GlobalSearchScope searchScope) {
-    final PsiMethod[] methods = ApplicationManager.getApplication().runReadAction(
-      new Computable<PsiMethod[]>() {
-        public PsiMethod[] compute() {
-          return psiClass.findMethodsByName(methodName, true);
-        }
-      }
-    );
+    final PsiMethod[] methods = ReadAction.compute(() -> psiClass.findMethodsByName(methodName, true));
     calculateDependencies(methods, classes, searchScope, psiClass);
     Map<PsiMethod, List<String>> psiMethods = classes.get(psiClass);
     if (psiMethods == null) {
@@ -291,7 +272,7 @@ public abstract class TestNGTestObject {
     }
     for (PsiMethod method : methods) {
       if (!psiMethods.containsKey(method)) {
-        psiMethods.put(method, Collections.<String>emptyList());
+        psiMethods.put(method, Collections.emptyList());
       }
     }
   }

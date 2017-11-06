@@ -33,21 +33,18 @@ import com.intellij.diff.util.DiffUtil;
 import com.intellij.diff.util.Side;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.Ref;
-import com.intellij.openapi.util.UserDataHolder;
-import com.intellij.openapi.vcs.AbstractVcs;
-import com.intellij.openapi.vcs.FilePath;
-import com.intellij.openapi.vcs.VcsDataKeys;
-import com.intellij.openapi.vcs.VcsException;
+import com.intellij.openapi.util.*;
+import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vcs.changes.*;
+import com.intellij.openapi.vcs.changes.ui.ChangeDiffRequestChain;
 import com.intellij.openapi.vcs.merge.MergeData;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.ExceptionUtil;
 import com.intellij.util.ThreeState;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -58,10 +55,16 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-public class ChangeDiffRequestProducer implements DiffRequestProducer {
+public class ChangeDiffRequestProducer implements DiffRequestProducer, ChangeDiffRequestChain.Producer {
   private static final Logger LOG = Logger.getInstance(ChangeDiffRequestProducer.class);
 
-  public static Key<Change> CHANGE_KEY = Key.create("DiffRequestPresentable.Change");
+  public static final Key<Change> CHANGE_KEY = Key.create("DiffRequestPresentable.Change");
+  public static final Key<Change> TAG_KEY = Key.create("DiffRequestPresentable.Tag");
+
+  public static final String YOUR_VERSION = DiffBundle.message("merge.version.title.our");
+  public static final String SERVER_VERSION = DiffBundle.message("merge.version.title.their");
+  public static final String BASE_VERSION = DiffBundle.message("merge.version.title.base");
+  public static final String MERGED_VERSION = DiffBundle.message("merge.version.title.merged");
 
   @Nullable private final Project myProject;
   @NotNull private final Change myChange;
@@ -86,7 +89,25 @@ public class ChangeDiffRequestProducer implements DiffRequestProducer {
   @NotNull
   @Override
   public String getName() {
-    return ChangesUtil.getFilePath(myChange).getPath();
+    return getFilePath().getPath();
+  }
+
+  @NotNull
+  @Override
+  public FilePath getFilePath() {
+    return ChangesUtil.getFilePath(myChange);
+  }
+
+  @NotNull
+  @Override
+  public FileStatus getFileStatus() {
+    return myChange.getFileStatus();
+  }
+
+  @Nullable
+  @Override
+  public Object getPopupTag() {
+    return myChangeContext.get(TAG_KEY);
   }
 
   public static boolean isEquals(@NotNull Change change1, @NotNull Change change2) {
@@ -107,6 +128,7 @@ public class ChangeDiffRequestProducer implements DiffRequestProducer {
     }
 
     if (!Comparing.equal(change1.getClass(), change2.getClass())) return false;
+    if (!Comparing.equal(change1.getFileStatus(), change2.getFileStatus())) return false;
     if (!isEquals(change1.getBeforeRevision(), change2.getBeforeRevision())) return false;
     if (!isEquals(change1.getAfterRevision(), change2.getAfterRevision())) return false;
 
@@ -133,7 +155,7 @@ public class ChangeDiffRequestProducer implements DiffRequestProducer {
 
   @Nullable
   public static ChangeDiffRequestProducer create(@Nullable Project project, @NotNull Change change) {
-    return create(project, change, Collections.<Key, Object>emptyMap());
+    return create(project, change, Collections.emptyMap());
   }
 
   @Nullable
@@ -273,19 +295,17 @@ public class ChangeDiffRequestProducer implements DiffRequestProducer {
         if (!exceptionRef.isNull()) {
           Throwable e = exceptionRef.get();
           if (e instanceof VcsException) throw (VcsException)e;
-          if (e instanceof Error) throw (Error)e;
-          if (e instanceof RuntimeException) throw (RuntimeException)e;
-          throw new RuntimeException(e);
+          ExceptionUtil.rethrow(e);
         }
         MergeData mergeData = mergeDataRef.get();
 
         ContentRevision bRev = change.getBeforeRevision();
         ContentRevision aRev = change.getAfterRevision();
-        String beforeRevisionTitle = getRevisionTitle(bRev, "Your version");
-        String afterRevisionTitle = getRevisionTitle(aRev, "Server version");
+        String beforeRevisionTitle = getRevisionTitle(bRev, YOUR_VERSION);
+        String afterRevisionTitle = getRevisionTitle(aRev, SERVER_VERSION);
 
         String title = DiffRequestFactory.getInstance().getTitle(file);
-        List<String> titles = ContainerUtil.list(beforeRevisionTitle, "Base Version", afterRevisionTitle);
+        List<String> titles = ContainerUtil.list(beforeRevisionTitle, BASE_VERSION, afterRevisionTitle);
 
         DiffContentFactory contentFactory = DiffContentFactory.getInstance();
         List<DiffContent> contents = ContainerUtil.list(
@@ -322,9 +342,9 @@ public class ChangeDiffRequestProducer implements DiffRequestProducer {
       DiffContent content2 = createContent(project, aRev, context, indicator);
 
       final String userLeftRevisionTitle = (String)myChangeContext.get(DiffUserDataKeysEx.VCS_DIFF_LEFT_CONTENT_TITLE);
-      String beforeRevisionTitle = userLeftRevisionTitle != null ? userLeftRevisionTitle : getRevisionTitle(bRev, "Base version");
+      String beforeRevisionTitle = userLeftRevisionTitle != null ? userLeftRevisionTitle : getRevisionTitle(bRev, BASE_VERSION);
       final String userRightRevisionTitle = (String)myChangeContext.get(DiffUserDataKeysEx.VCS_DIFF_RIGHT_CONTENT_TITLE);
-      String afterRevisionTitle = userRightRevisionTitle != null ? userRightRevisionTitle : getRevisionTitle(aRev, "Your version");
+      String afterRevisionTitle = userRightRevisionTitle != null ? userRightRevisionTitle : getRevisionTitle(aRev, YOUR_VERSION);
 
       SimpleDiffRequest request = new SimpleDiffRequest(title, content1, content2, beforeRevisionTitle, afterRevisionTitle);
 
@@ -341,24 +361,9 @@ public class ChangeDiffRequestProducer implements DiffRequestProducer {
   public static String getRequestTitle(@NotNull Change change) {
     ContentRevision bRev = change.getBeforeRevision();
     ContentRevision aRev = change.getAfterRevision();
-
-    assert bRev != null || aRev != null;
-    if (bRev != null && aRev != null) {
-      FilePath bPath = bRev.getFile();
-      FilePath aPath = aRev.getFile();
-      if (bPath.equals(aPath)) {
-        return DiffRequestFactoryImpl.getContentTitle(bPath);
-      }
-      else {
-        return DiffRequestFactoryImpl.getTitle(bPath, aPath, " -> ");
-      }
-    }
-    else if (bRev != null) {
-      return DiffRequestFactoryImpl.getContentTitle(bRev.getFile());
-    }
-    else {
-      return DiffRequestFactoryImpl.getContentTitle(aRev.getFile());
-    }
+    FilePath bPath = bRev != null ? bRev.getFile() : null;
+    FilePath aPath = aRev != null ? aRev.getFile() : null;
+    return DiffRequestFactoryImpl.getTitle(bPath, aPath, " -> ");
   }
 
   @NotNull
@@ -383,28 +388,25 @@ public class ChangeDiffRequestProducer implements DiffRequestProducer {
 
       if (revision instanceof CurrentContentRevision) {
         VirtualFile vFile = ((CurrentContentRevision)revision).getVirtualFile();
-        if (vFile == null) throw new DiffRequestProducerException("Can't get current revision content");
+        if (vFile == null || !vFile.isValid()) throw new DiffRequestProducerException("Can't get current revision content");
         return contentFactory.create(project, vFile);
       }
 
-      if (revision instanceof BinaryContentRevision) {
-        byte[] content = ((BinaryContentRevision)revision).getBinaryContent();
-        if (content == null) {
-          throw new DiffRequestProducerException("Can't get binary revision content");
-        }
-        return contentFactory.createFromBytes(project, content, filePath);
-      }
-
+      DiffContent content;
       if (revision instanceof ByteBackedContentRevision) {
         byte[] revisionContent = ((ByteBackedContentRevision)revision).getContentAsBytes();
         if (revisionContent == null) throw new DiffRequestProducerException("Can't get revision content");
-        return contentFactory.createFromBytes(project, revisionContent, filePath);
+        content = contentFactory.createFromBytes(project, revisionContent, filePath);
       }
       else {
         String revisionContent = revision.getContent();
         if (revisionContent == null) throw new DiffRequestProducerException("Can't get revision content");
-        return contentFactory.create(project, revisionContent, filePath);
+        content = contentFactory.create(project, revisionContent, filePath);
       }
+
+      content.putUserData(DiffUserDataKeysEx.REVISION_INFO, Pair.create(revision.getFile(), revision.getRevisionNumber()));
+
+      return content;
     }
     catch (IOException | VcsException e) {
       LOG.info(e);
@@ -426,13 +428,12 @@ public class ChangeDiffRequestProducer implements DiffRequestProducer {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
 
-    ChangeDiffRequestProducer that = (ChangeDiffRequestProducer)o;
-
-    return myChange.equals(that.myChange);
+    ChangeDiffRequestProducer producer = (ChangeDiffRequestProducer)o;
+    return isEquals(producer.myChange, myChange);
   }
 
   @Override
   public int hashCode() {
-    return myChange.hashCode();
+    return hashCode(myChange);
   }
 }

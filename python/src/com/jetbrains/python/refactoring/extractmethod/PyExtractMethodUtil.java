@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.refactoring.extractmethod;
 
 import com.intellij.codeInsight.CodeInsightUtilCore;
@@ -25,7 +11,6 @@ import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
@@ -41,6 +26,7 @@ import com.intellij.refactoring.rename.RenameUtil;
 import com.intellij.refactoring.util.AbstractVariableData;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.usageView.UsageInfo;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
@@ -90,7 +76,7 @@ public class PyExtractMethodUtil {
     final boolean isStaticMethod = flags != null && flags.isStaticMethod();
 
     // collect statements
-    final List<PsiElement> elementsRange = PyPsiUtils.collectElements(statement1, statement2);
+    final List<PsiElement> elementsRange = PsiTreeUtil.getElementsOfRange(statement1, statement2);
     if (elementsRange.isEmpty()) {
       CommonRefactoringUtil.showErrorHint(project, editor,
                                           PyBundle.message("refactoring.extract.method.error.empty.fragment"),
@@ -174,7 +160,7 @@ public class PyExtractMethodUtil {
       PyPsiUtils.assertValid(statement1);
       PyPsiUtils.assertValid(statement2);
       final List<SimpleMatch> duplicates = collectDuplicates(finder, statement1, insertedMethod);
-      
+
       // replace statements with call
       PsiElement insertedCallElement = WriteAction.compute(() -> replaceElements(elementsRange, callElement));
       insertedCallElement = CodeInsightUtilCore.forcePsiPostprocessAndRestoreElement(insertedCallElement);
@@ -357,7 +343,7 @@ public class PyExtractMethodUtil {
 
         PyPsiUtils.assertValid(expression);
         final List<SimpleMatch> duplicates = collectDuplicates(finder, expression, insertedMethod);
-        
+
         // replace statements with call
         PsiElement insertedCallElement = null;
         if (callElement != null) {
@@ -391,7 +377,7 @@ public class PyExtractMethodUtil {
 
   @NotNull
   private static PsiElement replaceElements(@NotNull final SimpleMatch match, @NotNull final PsiElement element) {
-    final List<PsiElement> elementsRange = PyPsiUtils.collectElements(match.getStartElement(), match.getEndElement());
+    final List<PsiElement> elementsRange = PsiTreeUtil.getElementsOfRange(match.getStartElement(), match.getEndElement());
     final Map<String, String> changedParameters = match.getChangedParameters();
     PsiElement callElement = element;
     final PyElementGenerator generator = PyElementGenerator.getInstance(callElement.getProject());
@@ -497,8 +483,8 @@ public class PyExtractMethodUtil {
       final PsiElement target = parent instanceof PyClass ? ((PyClass)parent).getStatementList() : parent;
       final PsiElement insertionAnchor = PyPsiUtils.getParentRightBefore(anchor, target);
       assert insertionAnchor != null;
-      final Couple<PsiComment> comments = PyPsiUtils.getPrecedingComments(insertionAnchor);
-      result = insertionAnchor.getParent().addBefore(generatedMethod, comments != null ? comments.getFirst() : insertionAnchor);
+      final List<PsiComment> comments = PyPsiUtils.getPrecedingComments(insertionAnchor);
+      result = insertionAnchor.getParent().addBefore(generatedMethod, !comments.isEmpty() ? comments.get(0) : insertionAnchor);
     }
     // to ensure correct reformatting, mark the entire method as generated
     result.accept(new PsiRecursiveElementVisitor() {
@@ -623,9 +609,9 @@ public class PyExtractMethodUtil {
     }
 
     final boolean isMethod = PyPsiUtils.isMethodContext(element);
-    final ExtractMethodDecorator decorator = new ExtractMethodDecorator() {
+    final ExtractMethodDecorator<Object> decorator = new ExtractMethodDecorator<Object>() {
       @NotNull
-      public String createMethodSignature(final String methodName, @NotNull final AbstractVariableData[] variableDatas) {
+      public String createMethodSignature(@NotNull ExtractMethodSettings<Object> settings) {
         final StringBuilder builder = new StringBuilder();
         if (isClassMethod) {
           builder.append("cls");
@@ -633,7 +619,7 @@ public class PyExtractMethodUtil {
         else if (isMethod && !isStaticMethod) {
           builder.append("self");
         }
-        for (AbstractVariableData variableData : variableDatas) {
+        for (AbstractVariableData variableData : settings.getAbstractVariableData()) {
           if (variableData.passAsParameter) {
             if (builder.length() != 0) {
               builder.append(", ");
@@ -642,15 +628,16 @@ public class PyExtractMethodUtil {
           }
         }
         builder.insert(0, "(");
-        builder.insert(0, methodName);
+        builder.insert(0, settings.getMethodName());
         builder.insert(0, "def ");
         builder.append(")");
         return builder.toString();
       }
     };
 
-    final AbstractExtractMethodDialog dialog = new AbstractExtractMethodDialog(project, "method_name", fragment, validator, decorator,
-                                                                               PythonFileType.INSTANCE) {
+    final AbstractExtractMethodDialog<?> dialog = new AbstractExtractMethodDialog<Object>(project, "method_name", fragment,
+                                                                                          ArrayUtil.EMPTY_OBJECT_ARRAY, validator,
+                                                                                          decorator, PythonFileType.INSTANCE) {
       @Override
       protected String getHelpId() {
         return "python.reference.extractMethod";

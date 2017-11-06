@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,6 +66,7 @@ class IdeaCommunityProperties extends BaseIdeaProperties {
         icoPath = "$projectHome/platform/icons/src/idea_CE.ico"
         installerImagesPath = "$projectHome/build/conf/ideaCE/win/images"
         fileAssociations = [".java", ".groovy", ".kt"]
+        silentInstallationConfig = "$projectHome/build/conf/nsis/silent.config"
       }
 
       @Override
@@ -89,6 +90,10 @@ class IdeaCommunityProperties extends BaseIdeaProperties {
     return new LinuxDistributionCustomizer() {
       {
         iconPngPath = "$projectHome/platform/icons/src/icon_CE_128.png"
+        snapName = "intellij-idea-community"
+        snapDescription =
+          "The most intelligent Java IDE. Every aspect of IntelliJ IDEA is specifically designed to maximize developer productivity. " +
+          "Together, powerful static code analysis and ergonomic design make development not only productive but also an enjoyable experience."
       }
 
       @Override
@@ -100,18 +105,18 @@ class IdeaCommunityProperties extends BaseIdeaProperties {
   MacDistributionCustomizer createMacCustomizer(String projectHome) {
     return new MacDistributionCustomizer() {
       {
-        helpId = "IJ"
+        icnsPath = "$projectHome/build/conf/ideaCE/mac/images/idea.icns"
         urlSchemes = ["idea"]
         associateIpr = true
         enableYourkitAgentInEAP = false
         bundleIdentifier = "com.jetbrains.intellij.ce"
-        dmgImagePath = "$projectHome/build/conf/mac/communitydmg.png"
-        icnsPathForEAP = "$projectHome/build/conf/mac/communityEAP.icns"
+        dmgImagePath = "$projectHome/build/conf/ideaCE/mac/images/communitydmg.png"
+        icnsPathForEAP = "$projectHome/build/conf/ideaCE/mac/images/communityEAP.icns"
       }
 
       @Override
       String getRootDirectoryName(ApplicationInfoProperties applicationInfo, String buildNumber) {
-        applicationInfo.isEAP ? "IntelliJ IDEA ${applicationInfo.majorVersion}.${applicationInfo.minorVersion} CE EAP.app"
+        applicationInfo.isEAP ? "IntelliJ IDEA ${applicationInfo.majorVersion}.${applicationInfo.minorVersionMainPart} CE EAP.app"
                               : "IntelliJ IDEA CE.app"
       }
     }

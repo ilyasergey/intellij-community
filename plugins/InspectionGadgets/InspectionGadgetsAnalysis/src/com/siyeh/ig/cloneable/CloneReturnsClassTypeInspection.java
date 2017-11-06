@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,7 +60,7 @@ public class CloneReturnsClassTypeInspection extends BaseInspection {
 
   private static class CloneReturnsClassTypeFix extends InspectionGadgetsFix {
 
-    private final String myClassName;
+    final String myClassName;
 
     public CloneReturnsClassTypeFix(String className) {
       myClassName = className;
@@ -100,12 +100,8 @@ public class CloneReturnsClassTypeInspection extends BaseInspection {
           if (owner != parent) {
             return;
           }
-          final PsiExpression returnValue = statement.getReturnValue();
-          if (returnValue == null) {
-            return;
-          }
-          final PsiType type = returnValue.getType();
-          if (newType.equals(type)) {
+          final PsiExpression returnValue = PsiUtil.deparenthesizeExpression(statement.getReturnValue());
+          if (returnValue == null || newType.equals(returnValue.getType())) {
             return;
           }
           PsiReplacementUtil.replaceStatement(statement, "return (" + myClassName + ')' + returnValue.getText() + ';');
@@ -133,16 +129,9 @@ public class CloneReturnsClassTypeInspection extends BaseInspection {
         return;
       }
       final PsiType returnType = typeElement.getType();
-      if (!(returnType instanceof PsiClassType)) {
-        return;
-      }
-      final PsiClassType classType = (PsiClassType)returnType;
-      final PsiClass aClass = classType.resolve();
+      final PsiClass aClass = PsiUtil.resolveClassInClassTypeOnly(returnType);
       final PsiClass containingClass = method.getContainingClass();
-      if (containingClass == null) {
-        return;
-      }
-      if (containingClass.equals(aClass)) {
+      if (containingClass == null || containingClass.equals(aClass)) {
         return;
       }
       if (!CloneUtils.isCloneable(containingClass)) {

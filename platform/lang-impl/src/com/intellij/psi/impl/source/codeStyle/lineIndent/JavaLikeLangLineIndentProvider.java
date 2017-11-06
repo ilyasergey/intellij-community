@@ -34,8 +34,10 @@ import static com.intellij.formatting.Indent.Type.*;
 import static com.intellij.psi.impl.source.codeStyle.lineIndent.JavaLikeLangLineIndentProvider.JavaLikeElement.*;
 
 /**
- * A base class Java-like language line indent provider. If JavaLikeLangLineIndentProvider is unable to calculate
- * the indentation, it forwards the request to FormatterBasedLineIndentProvider.
+ * A base class for Java-like language line indent provider. 
+ * If a LineIndentProvider is not provided, {@link FormatterBasedLineIndentProvider} is used.
+ * If a registered provider is unable to calculate the indentation, 
+ * {@link FormatterBasedIndentAdjuster} will be used.
  */
 public abstract class JavaLikeLangLineIndentProvider implements LineIndentProvider{
   
@@ -90,8 +92,12 @@ public abstract class JavaLikeLangLineIndentProvider implements LineIndentProvid
         SemanticEditorPosition position = getPosition(editor,offset);
         if (position.hasEmptyLineAfter(offset) &&
             !position.after().isAtAnyOf(ArrayClosingBracket, BlockOpeningBrace, BlockClosingBrace, RightParenthesis) &&
-            !position.isAtEnd()) {
-            return myFactory.createIndentCalculator(NONE, IndentCalculator.LINE_AFTER);
+            !position.isAtEnd() &&
+            position.findLeftParenthesisBackwardsSkippingNested(LeftParenthesis, RightParenthesis,
+                                                                element -> element == BlockClosingBrace || element == BlockOpeningBrace ||
+                                                                           element == Semicolon)
+              .isAt(LeftParenthesis)) {
+          return myFactory.createIndentCalculator(NONE, IndentCalculator.LINE_AFTER);
         }
       }
       else if (getPosition(editor, offset + 1).matchesRule(
@@ -198,19 +204,23 @@ public abstract class JavaLikeLangLineIndentProvider implements LineIndentProvid
     while (!position.isAtEnd()) {
       if (currLanguage == Language.ANY || currLanguage == null) currLanguage = position.getLanguage();
       if (position.isAt(Colon)) {
-        SemanticEditorPosition afterColon = getPosition(position.getEditor(), position.getStartOffset()).after().afterOptional(Whitespace);
-        if (position.isAfterOnSameLine(SwitchCase, SwitchDefault)) {
+        SemanticEditorPosition afterColon = getPosition(position.getEditor(), position.getStartOffset())
+          .after().afterOptionalMix(Whitespace, LineComment);
+        if (getPosition(position.getEditor(), position.getStartOffset()).isAfterOnSameLine(SwitchCase, SwitchDefault)) {
           return afterColon.getStartOffset();
         }
       }
       else if (position.isAt(RightParenthesis)) {
         position.beforeParentheses(LeftParenthesis, RightParenthesis);
+        continue;
       }
       else if (position.isAt(BlockClosingBrace)) {
         position.beforeParentheses(BlockOpeningBrace, BlockClosingBrace);
+        continue;
       }
       else if (position.isAt(ArrayClosingBracket)) {
         position.beforeParentheses(ArrayOpeningBracket, ArrayClosingBracket);
+        continue;
       }
       else if (position.isAtAnyOf(Semicolon,
                                   BlockOpeningBrace, 

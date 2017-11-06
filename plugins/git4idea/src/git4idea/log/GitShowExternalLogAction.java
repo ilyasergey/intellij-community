@@ -40,11 +40,12 @@ import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentFactory;
 import com.intellij.ui.content.ContentManager;
-import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.impl.VcsLogContentProvider;
 import com.intellij.vcs.log.impl.VcsLogManager;
 import com.intellij.vcs.log.impl.VcsLogTabsProperties;
+import com.intellij.vcs.log.ui.AbstractVcsLogUi;
+import com.intellij.vcs.log.ui.VcsLogPanel;
 import git4idea.GitUtil;
 import git4idea.GitVcs;
 import git4idea.config.GitVersion;
@@ -67,13 +68,13 @@ public class GitShowExternalLogAction extends DumbAwareAction {
   @Override
   public void update(@NotNull AnActionEvent e) {
     super.update(e);
-    e.getPresentation().setEnabledAndVisible(e.getProject() != null && GitVcs.getInstance(e.getProject()) != null);
+    e.getPresentation().setEnabledAndVisible(e.getProject() != null);
   }
 
   @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getRequiredData(CommonDataKeys.PROJECT);
-    final GitVcs vcs = ObjectUtils.assertNotNull(GitVcs.getInstance(project));
+    final GitVcs vcs = GitVcs.getInstance(project);
     final List<VirtualFile> roots = getGitRootsFromUser(project);
     if (roots.isEmpty()) {
       return;
@@ -120,11 +121,14 @@ public class GitShowExternalLogAction extends DumbAwareAction {
     }
     VcsLogManager manager = new VcsLogManager(project, ServiceManager.getService(project, VcsLogTabsProperties.class),
                                               ContainerUtil.map(roots, root -> new VcsRoot(vcs, root)));
-    return new MyContentComponent(manager.createLogPanel(calcLogId(roots), tabName), roots, () -> {
+    Disposable disposable = () -> manager.dispose(() -> {
       for (VirtualFile root : roots) {
         repositoryManager.removeExternalRepository(root);
       }
     });
+    AbstractVcsLogUi ui = manager.createLogUi(calcLogId(roots), tabName);
+    Disposer.register(disposable, ui);
+    return new MyContentComponent(new VcsLogPanel(manager, ui), roots, disposable);
   }
 
   @NotNull

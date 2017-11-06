@@ -15,3 +15,5 @@ python-rest
 ipnb
 editorconfig
 settings-repository
+yaml
+properties

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,10 +18,11 @@ package com.intellij.codeInsight.template.emmet;
 import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.codeInsight.hint.HintManagerImpl;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.*;
-import com.intellij.openapi.editor.event.DocumentAdapter;
 import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.event.EditorFactoryAdapter;
 import com.intellij.openapi.editor.event.EditorFactoryEvent;
 import com.intellij.openapi.editor.ex.EditorEx;
@@ -35,11 +36,11 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.ui.HintHint;
-import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.LightweightHint;
 import com.intellij.ui.components.JBPanel;
 import com.intellij.util.Alarm;
 import com.intellij.util.DocumentUtil;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.Producer;
 import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
@@ -54,12 +55,15 @@ public class EmmetPreviewHint extends LightweightHint implements Disposable {
   @NotNull private final Editor myParentEditor;
   @NotNull private final Editor myEditor;
   @NotNull private final Alarm myAlarm = new Alarm(this);
-  private boolean isDisposed = false;
+  private volatile boolean isDisposed = false;
 
   private EmmetPreviewHint(@NotNull JBPanel panel, @NotNull Editor editor, @NotNull Editor parentEditor) {
     super(panel);
     myParentEditor = parentEditor;
     myEditor = editor;
+
+    final Disposable parentDisposable = ObjectUtils.coalesce(ObjectUtils.tryCast(parentEditor, Disposable.class), parentEditor.getProject());
+    Disposer.register(parentDisposable, this);
 
     final Editor topLevelEditor = InjectedLanguageUtil.getTopLevelEditor(myParentEditor);
     EditorFactory.getInstance().addEditorFactoryListener(new EditorFactoryAdapter() {
@@ -71,7 +75,7 @@ public class EmmetPreviewHint extends LightweightHint implements Disposable {
       }
     }, this);
 
-    myEditor.getDocument().addDocumentListener(new DocumentAdapter() {
+    myEditor.getDocument().addDocumentListener(new DocumentListener() {
       @Override
       public void documentChanged(DocumentEvent event) {
         if (!isDisposed && event.isWholeTextReplaced()) {
@@ -159,7 +163,7 @@ public class EmmetPreviewHint extends LightweightHint implements Disposable {
     settings.setAdditionalPageAtBottom(false);
     settings.setCaretRowShown(false);
     previewEditor.setCaretEnabled(false);
-    previewEditor.setBorder(IdeBorderFactory.createEmptyBorder());
+    previewEditor.setBorder(JBUI.Borders.empty());
 
     JBPanel panel = new JBPanel(new BorderLayout()) {
       @NotNull
@@ -177,7 +181,7 @@ public class EmmetPreviewHint extends LightweightHint implements Disposable {
       @NotNull
       @Override
       public Insets getInsets() {
-        return new Insets(1, 2, 0, 0);
+        return JBUI.insets(1, 2, 0, 0);
       }
     };
     panel.setBackground(previewEditor.getBackgroundColor());
@@ -193,13 +197,19 @@ public class EmmetPreviewHint extends LightweightHint implements Disposable {
   @Override
   public void hide(boolean ok) {
     super.hide(ok);
-    ApplicationManager.getApplication().invokeLater(() -> Disposer.dispose(this));
+    final Application application = ApplicationManager.getApplication();
+    if (application.isUnitTestMode()) {
+      Disposer.dispose(this);
+    } else {
+      application.invokeLater(() -> Disposer.dispose(this));
+    }
   }
 
   @Override
   public void dispose() {
     isDisposed = true;
     myAlarm.cancelAllRequests();
+    super.hide();
     EmmetPreviewHint existingBalloon = myParentEditor.getUserData(KEY);
     if (existingBalloon == this) {
       myParentEditor.putUserData(KEY, null);

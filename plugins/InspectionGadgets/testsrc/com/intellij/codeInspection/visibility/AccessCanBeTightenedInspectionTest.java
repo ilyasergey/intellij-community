@@ -34,11 +34,17 @@ import org.jetbrains.annotations.NotNull;
 
 @SuppressWarnings("WeakerAccess")
 public class AccessCanBeTightenedInspectionTest extends LightInspectionTestCase {
-  private VisibilityInspection myVisibilityInspection = createTool();
+  private VisibilityInspection myVisibilityInspection;
 
   @Override
   protected LocalInspectionTool getInspection() {
     return myVisibilityInspection.getSharedLocalInspectionTool();
+  }
+
+  @Override
+  protected void setUp() throws Exception {
+    myVisibilityInspection = createTool();
+    super.setUp();
   }
 
   @Override
@@ -148,6 +154,28 @@ public class AccessCanBeTightenedInspectionTest extends LightInspectionTestCase 
       "  public int foo = 0;\n" +
       "  public void bar() {}\n"+
       "}");
+    myFixture.configureByFiles("y/C.java","x/Sub.java");
+    myFixture.checkHighlighting();
+  }
+  
+  public void testQualifiedAccessFromSubclassSamePackage() {
+    myFixture.allowTreeAccessForAllFiles();
+    myFixture.addFileToProject("x/Sub.java",
+      "package x; " +
+      "import y.C; " +
+      "class Sub extends C {}" +
+      "");
+    myFixture.addFileToProject("y/C.java",
+      "package y; public class C {\n" +
+      "  public int foo = 0;\n" +
+      "  public void bar() {}\n"+
+      "}");
+    myFixture.addFileToProject("y/U.java", 
+     "package y; import x.Sub;\n" +
+      "public class U {{\n" +
+     "  Sub s = new Sub();\n" +
+     "  s.bar(); int a = s.foo;\n" +
+     " }}");
     myFixture.configureByFiles("y/C.java","x/Sub.java");
     myFixture.checkHighlighting();
   }
@@ -346,5 +374,21 @@ public class AccessCanBeTightenedInspectionTest extends LightInspectionTestCase 
     }, getTestRootDisposable());
     myFixture.configureByFiles("x/MyTest.java");
     myFixture.checkHighlighting();
+  }
+
+  public void testSuggestForConstants() {
+    myVisibilityInspection.SUGGEST_FOR_CONSTANTS = true;
+    doTest("class SuggestForConstants {\n" +
+           "    <warning descr=\"Access can be private\">public</warning> static final String MY_CONSTANT = \"a\";\n" +
+           "    private final String myField = MY_CONSTANT;" +
+           "}");
+  }
+
+  public void testDoNotSuggestForConstants() {
+    myVisibilityInspection.SUGGEST_FOR_CONSTANTS = false;
+    doTest("class DoNotSuggestForConstants {\n" +
+           "    public static final String MY_CONSTANT = \"a\";\n" +
+           "    private final String myField = MY_CONSTANT;" +
+           "}");
   }
 }

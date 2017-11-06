@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.psiutils.CloneUtils;
+import com.siyeh.ig.psiutils.ControlFlowUtils;
 import com.siyeh.ig.psiutils.MethodCallUtils;
 import com.siyeh.ig.psiutils.MethodUtils;
 import com.siyeh.ig.ui.ExternalizableStringSet;
@@ -130,16 +131,11 @@ public class RefusedBequestInspectionBase extends BaseInspection {
         }
       }
       if (onlyReportWhenAnnotated && !CloneUtils.isClone(method) && !isJUnitSetUpOrTearDown(method) && !MethodUtils.isFinalize(method)) {
-        if (!AnnotationUtil.isAnnotated(leastConcreteSuperMethod, annotations)) {
+        if (!AnnotationUtil.isAnnotated(leastConcreteSuperMethod, annotations, 0)) {
           return;
         }
       }
-      final PsiClass aClass = method.getContainingClass();
-      if ((aClass != null && aClass.hasModifierProperty(PsiModifier.FINAL) || method.hasModifierProperty(PsiModifier.FINAL)) &&
-          MethodUtils.isTrivial(method, true)) {
-        return;
-      }
-      if (MethodCallUtils.containsSuperMethodCall(method)) {
+      if (MethodCallUtils.containsSuperMethodCall(method) || ControlFlowUtils.methodAlwaysThrowsException(method)) {
         return;
       }
       registerMethodError(method);

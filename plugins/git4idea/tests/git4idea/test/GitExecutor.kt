@@ -19,11 +19,13 @@ package git4idea.test
 
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vcs.Executor
 import com.intellij.openapi.vcs.Executor.*
 import com.intellij.testFramework.vcs.ExecutableHelper
+import com.intellij.vcs.log.impl.VcsLogUtil
 import git4idea.repo.GitRepository
 import org.junit.Assert.assertFalse
 import java.io.File
@@ -44,7 +46,7 @@ private fun doCallGit(command: String, ignoreNonZeroExitCode: Boolean): String {
   split.add(0, gitExecutable())
   val workingDir = ourCurrentDir()
   debug("[" + workingDir.name + "] # git " + command)
-  for (attempt in 0..MAX_RETRIES - 1) {
+  for (attempt in 0 until MAX_RETRIES) {
     var stdout: String
     try {
       stdout = run(workingDir, split, ignoreNonZeroExitCode)
@@ -93,7 +95,7 @@ fun branch(name: String) : String {
 }
 
 fun checkout(vararg params: String) {
-  git("checkout " + StringUtil.join(params, " "))
+  git("checkout ${params.joinToString(" ")}")
 }
 
 fun checkoutNew(branchName: String, startPoint: String = ""): String {
@@ -107,7 +109,13 @@ fun commit(message: String): String {
 
 @JvmOverloads fun tac(file: String, content: String = "content" + Math.random()): String {
   touch(file, content)
-  return addCommit("touched " + file)
+  return addCommit("Touched $file")
+}
+
+fun tacp(file: String): String {
+  touch(file)
+  addCommit("Touched $file")
+  return git("push")
 }
 
 fun appendAndCommit(file: String, additionalContent: String) : String {
@@ -141,6 +149,19 @@ fun mv(from: File, to: File) {
   mv(from.path, to.path)
 }
 
+fun GitPlatformTest.prepareConflict(initialBranch: String = "master",
+                                    featureBranch: String = "feature",
+                                    conflictingFile: String = "c.txt"): String {
+  checkout(initialBranch)
+  val file = file(conflictingFile)
+  file.create("initial\n").addCommit("initial")
+  branch(featureBranch)
+  val commit = file.append("master\n").addCommit("on_master").hash()
+  checkout(featureBranch)
+  file.append("feature\n").addCommit("on_feature")
+  return commit
+}
+
 private fun printVersionTheFirstTime() {
   if (!myVersionPrinted) {
     myVersionPrinted = true
@@ -148,9 +169,9 @@ private fun printVersionTheFirstTime() {
   }
 }
 
-fun file(fileName: String): TestFile {
+internal fun GitPlatformTest.file(fileName: String): TestFile {
   val f = child(fileName)
-  return TestFile(f)
+  return TestFile(this.project!!, f)
 }
 
 private class GitExecutorHolder {
@@ -160,7 +181,7 @@ private class GitExecutorHolder {
   }
 }
 
-class TestFile internal constructor(val file: File) {
+internal class TestFile internal constructor(val project: Project, val file: File) {
 
   fun append(content: String): TestFile {
     FileUtil.writeToFile(file, content.toByteArray(), true)
@@ -196,9 +217,9 @@ class TestFile internal constructor(val file: File) {
 
   fun hash() = last()
 
+  fun details() = VcsLogUtil.getDetails(findGitLogProvider(project), project.baseDir, listOf(hash())).first()!!
+
   fun exists() = file.exists()
-}
 
-class TestCommit internal constructor(shortHash: String, hash: String) {
-
+  fun read() = FileUtil.loadFile(file)
 }

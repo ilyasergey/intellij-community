@@ -44,7 +44,7 @@ public class CachingConstructorInjectionComponentAdapter extends InstantiatingCo
   }
 
   public CachingConstructorInjectionComponentAdapter(@NotNull Object componentKey, @NotNull Class componentImplementation, Parameter[] parameters, boolean allowNonPublicClasses) throws AssignabilityRegistrationException, NotConcreteRegistrationException {
-    super(componentKey, componentImplementation, parameters, allowNonPublicClasses);
+    super(componentKey, componentImplementation, parameters, allowNonPublicClasses, DefaultPicoContainer.DEFAULT_DELEGATING_COMPONENT_MONITOR, DefaultPicoContainer.DEFAULT_LIFECYCLE_STRATEGY);
   }
 
   public CachingConstructorInjectionComponentAdapter(@NotNull Object componentKey, @NotNull Class componentImplementation, Parameter[] parameters) {
@@ -119,6 +119,7 @@ public class CachingConstructorInjectionComponentAdapter extends InstantiatingCo
     }
   }
 
+  @NotNull
   private Object[] getConstructorArguments(PicoContainer container, Constructor ctor) {
     Class[] parameterTypes = ctor.getParameterTypes();
     Object[] result = new Object[parameterTypes.length];
@@ -204,6 +205,7 @@ public class CachingConstructorInjectionComponentAdapter extends InstantiatingCo
     return matchingConstructors;
   }
 
+  @NotNull
   private Constructor[] getConstructors() {
     return (Constructor[]) AccessController.doPrivileged(new PrivilegedAction() {
       public Object run() {

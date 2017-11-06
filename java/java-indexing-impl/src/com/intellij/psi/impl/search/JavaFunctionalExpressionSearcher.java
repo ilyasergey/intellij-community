@@ -25,6 +25,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.LanguageLevelModuleExtension;
 import com.intellij.openapi.roots.ModuleRootManager;
@@ -143,7 +144,7 @@ public class JavaFunctionalExpressionSearcher extends QueryExecutorBase<PsiFunct
   private static MultiMap<VirtualFile, FunExprOccurrence> getAllOccurrences(List<SamDescriptor> descriptors) {
     MultiMap<VirtualFile, FunExprOccurrence> result = MultiMap.createLinkedSet();
     for (SamDescriptor descriptor : descriptors) {
-      ReadAction.run(() -> {
+      descriptor.dumbService.runReadActionInSmartMode(() -> {
         for (FunctionalExpressionKey key : descriptor.generateKeys()) {
           FileBasedIndex.getInstance().processValues(JavaFunctionalExpressionIndex.INDEX_ID, key, null, (file, infos) -> {
             ProgressManager.checkCanceled();
@@ -165,7 +166,7 @@ public class JavaFunctionalExpressionSearcher extends QueryExecutorBase<PsiFunct
     if (allCandidates.isEmpty()) return;
 
     for (VirtualFile vFile : putLikelyFilesFirst(descriptors, allCandidates.keySet(), project)) {
-      List<FunExprOccurrence> toLoad = filterInapplicable(samClasses, vFile, allCandidates.get(vFile));
+      List<FunExprOccurrence> toLoad = filterInapplicable(samClasses, vFile, allCandidates.get(vFile), project);
       if (!toLoad.isEmpty()) {
         LOG.trace("To load " + vFile.getPath() + " with values: " + toLoad);
         if (!processor.process(vFile, ContainerUtil.map(toLoad, it -> it.funExprOffset))) {
@@ -186,8 +187,10 @@ public class JavaFunctionalExpressionSearcher extends QueryExecutorBase<PsiFunct
   @NotNull
   private static List<FunExprOccurrence> filterInapplicable(List<PsiClass> samClasses,
                                                             VirtualFile vFile,
-                                                            Collection<FunExprOccurrence> occurrences) {
-    return ReadAction.compute(() -> ContainerUtil.filter(occurrences, it -> it.canHaveType(samClasses, vFile)));
+                                                            Collection<FunExprOccurrence> occurrences, Project project) {
+    return DumbService.getInstance(project).runReadActionInSmartMode(
+      () -> project.isDisposed() ? Collections.emptyList()
+                                 : ContainerUtil.filter(occurrences, it -> it.canHaveType(samClasses, vFile)));
   }
 
   private static boolean processFile(@NotNull Processor<PsiFunctionalExpression> consumer,
@@ -279,6 +282,7 @@ public class JavaFunctionalExpressionSearcher extends QueryExecutorBase<PsiFunct
     final int samParamCount;
     final boolean booleanCompatible;
     final boolean isVoid;
+    final DumbService dumbService;
     GlobalSearchScope effectiveUseScope;
 
     SamDescriptor(PsiClass samClass, PsiMethod samMethod, PsiType samType, GlobalSearchScope useScope) {
@@ -287,11 +291,15 @@ public class JavaFunctionalExpressionSearcher extends QueryExecutorBase<PsiFunct
       this.samParamCount = samMethod.getParameterList().getParametersCount();
       this.booleanCompatible = FunctionalExpressionKey.isBooleanCompatible(samType);
       this.isVoid = PsiType.VOID.equals(samType);
+      this.dumbService = DumbService.getInstance(samClass.getProject());
     }
 
     List<FunctionalExpressionKey> generateKeys() {
+      String name = samClass.isValid() ? samClass.getName() : null;
+      if (name == null) return Collections.emptyList();
+
       List<FunctionalExpressionKey> result = new ArrayList<>();
-      for (String lambdaType : new String[]{assertNotNull(samClass.getName()), ""}) {
+      for (String lambdaType : new String[]{assertNotNull(name), ""}) {
         for (int lambdaParamCount : new int[]{FunctionalExpressionKey.UNKNOWN_PARAM_COUNT, samParamCount}) {
           result.add(new FunctionalExpressionKey(lambdaParamCount, FunctionalExpressionKey.CoarseType.UNKNOWN, lambdaType));
           if (isVoid) {
@@ -311,7 +319,7 @@ public class JavaFunctionalExpressionSearcher extends QueryExecutorBase<PsiFunct
     @NotNull
     private Set<VirtualFile> getMostLikelyFiles(GlobalSearchScope searchScope) {
       Set<VirtualFile> files = ContainerUtil.newLinkedHashSet();
-      ReadAction.run(() -> {
+      dumbService.runReadActionInSmartMode(() -> {
         if (!samClass.isValid()) return;
 
         String className = samClass.getName();

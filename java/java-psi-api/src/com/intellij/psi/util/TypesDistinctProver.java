@@ -21,10 +21,6 @@ import com.intellij.util.containers.HashSet;
 
 import java.util.Set;
 
-/**
- * User: anna
- * Date: Aug 12, 2010
- */
 public class TypesDistinctProver {
   public static final Set<String> ARRAY_SUPER_CLASSES = new HashSet<>();
   static {
@@ -89,7 +85,7 @@ public class TypesDistinctProver {
         }
 
         final PsiType bound = ((PsiWildcardType)type1).getBound();
-        return bound != null && !bound.equals(psiClass2);
+        return bound != null && !bound.equals(type2);
       }
       
       if (type2 instanceof PsiArrayType) {

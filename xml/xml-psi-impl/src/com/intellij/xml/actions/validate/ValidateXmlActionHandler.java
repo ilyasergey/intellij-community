@@ -43,12 +43,15 @@ import org.xml.sax.SAXNotRecognizedException;
 import org.xml.sax.SAXParseException;
 import org.xml.sax.helpers.DefaultHandler;
 
+import javax.xml.XMLConstants;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
 import java.io.StringReader;
 import java.util.Arrays;
 import java.util.Map;
+
+import static com.sun.org.apache.xerces.internal.impl.Constants.SECURITY_MANAGER;
 
 /**
  * @author Mike
@@ -59,13 +62,13 @@ public class ValidateXmlActionHandler {
   private static final String SCHEMA_FULL_CHECKING_FEATURE_ID = "http://apache.org/xml/features/validation/schema-full-checking";
   private static final String GRAMMAR_FEATURE_ID = Constants.XERCES_PROPERTY_PREFIX + Constants.XMLGRAMMAR_POOL_PROPERTY;
   private static final String ENTITY_MANAGER_PROPERTY_ID = Constants.XERCES_PROPERTY_PREFIX + Constants.ENTITY_MANAGER_PROPERTY;
-  private static final String SECURITY_MANAGER = Constants.XERCES_PROPERTY_PREFIX + Constants.SECURITY_MANAGER_PROPERTY;
 
   private static final Key<XMLGrammarPool> GRAMMAR_POOL_KEY = Key.create("GrammarPoolKey");
   private static final Key<Long> GRAMMAR_POOL_TIME_STAMP_KEY = Key.create("GrammarPoolTimeStampKey");
   private static final Key<VirtualFile[]> DEPENDENT_FILES_KEY = Key.create("GrammarPoolFilesKey");
   private static final Key<String[]> KNOWN_NAMESPACES_KEY = Key.create("KnownNamespacesKey");
   private static final Key<Map<String, XMLEntityManager.Entity>> ENTITIES_KEY = Key.create("EntityManagerKey");
+  public static final String JDK_XML_MAX_OCCUR_LIMIT = "jdk.xml.maxOccurLimit";
 
   private Project myProject;
   private XmlFile myFile;
@@ -230,14 +233,25 @@ public class ValidateXmlActionHandler {
         } catch(NoSuchMethodError ignore) {}
         schemaChecking = true;
       }
+      try {
+        factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+      } catch (Exception ignore) {
+      }
 
       SAXParser parser = factory.newSAXParser();
 
       parser.setProperty(ENTITY_RESOLVER_PROPERTY_NAME, myXmlResourceResolver);
 
-      SecurityManager securityManager = new SecurityManager();
-      securityManager.setEntityExpansionLimit(10000);
-      parser.setProperty(SECURITY_MANAGER, securityManager);
+      try {
+        parser.getXMLReader().setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+      } catch (Exception ignore) {
+      }
+
+      String property = System.getProperty(JDK_XML_MAX_OCCUR_LIMIT);
+      if (property != null) {
+        SecurityManager securityManager = (SecurityManager)parser.getProperty(SECURITY_MANAGER);
+        securityManager.setMaxOccurNodeLimit(Integer.parseInt(property));
+      }
 
       if (schemaChecking) { // when dtd checking schema refs could not be validated @see http://marc.theaimsgroup.com/?l=xerces-j-user&m=112504202423704&w=2
         XMLGrammarPool grammarPool = getGrammarPool(myFile, myForceChecking);

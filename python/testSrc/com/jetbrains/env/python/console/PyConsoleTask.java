@@ -17,12 +17,13 @@ package com.jetbrains.env.python.console;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.intellij.execution.ExecutionManager;
+import com.google.common.collect.Sets;
 import com.intellij.execution.console.LanguageConsoleView;
 import com.intellij.execution.process.ProcessAdapter;
 import com.intellij.execution.process.ProcessEvent;
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.openapi.application.Result;
+import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
@@ -37,12 +38,14 @@ import com.jetbrains.python.console.*;
 import com.jetbrains.python.console.pydev.ConsoleCommunicationListener;
 import com.jetbrains.python.debugger.PyDebugValue;
 import com.jetbrains.python.debugger.PyDebuggerException;
-import com.jetbrains.python.sdkTools.SdkCreationType;
+import com.jetbrains.python.tools.sdkTools.SdkCreationType;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.junit.Assert;
 
 import java.util.List;
-import java.util.concurrent.Semaphore;
+import java.util.Set;
+import java.util.concurrent.*;
 
 /**
  * @author traff
@@ -57,12 +60,18 @@ public class PyConsoleTask extends PyExecutionFixtureTestTask {
   private PythonConsoleView myConsoleView;
   private Semaphore myCommandSemaphore;
   private Semaphore myConsoleInitSemaphore;
-  private PydevConsoleExecuteActionHandler myExecuteHandler;
+  private PythonConsoleExecuteActionHandler myExecuteHandler;
 
   private Ref<RunContentDescriptor> myContentDescriptorRef = Ref.create();
 
   public PyConsoleTask() {
     super(null);
+  }
+
+  @Nullable
+  @Override
+  public Set<String> getTagsToCover() {
+    return Sets.newHashSet("python3.6", "python2.7", "ipython", "ipython200", "jython", "IronPython");
   }
 
   public PythonConsoleView getConsoleView() {
@@ -85,52 +94,60 @@ public class PyConsoleTask extends PyExecutionFixtureTestTask {
 
   @Override
   public void tearDown() throws Exception {
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          if (myConsoleView != null) {
-            disposeConsole();
-            myCommunication.waitForTerminate();
-          }
-          PyConsoleTask.super.tearDown();
-        }
-        catch (Exception e) {
-          throw new RuntimeException(e);
+    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+      try {
+        if (myConsoleView != null) {
+          disposeConsole();
         }
       }
+      catch (Exception e) {
+        throw new RuntimeException(e);
+      }
     });
+    super.tearDown();
   }
 
-  private void disposeConsole() throws InterruptedException {
+  /**
+   * Disposes Python console and waits for Python console server thread to die.
+   */
+  private void disposeConsole() throws InterruptedException, ExecutionException, TimeoutException {
+    disposeConsoleAsync().get(30L, TimeUnit.SECONDS);
+  }
+
+  @NotNull
+  private Future<Void> disposeConsoleAsync() {
+    Future<Void> shutdownFuture;
     if (myCommunication != null) {
-      UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-        @Override
-        public void run() {
-          try {
-            myCommunication.close();
-          }
-          catch (Exception e) {
-            e.printStackTrace();
-          }
+      shutdownFuture = UIUtil.invokeAndWaitIfNeeded(() -> {
+        try {
+          return myCommunication.closeAsync();
+        }
+        finally {
           myCommunication = null;
         }
       });
     }
+    else {
+      shutdownFuture = CompletableFuture.completedFuture(null);
+    }
 
     disposeConsoleProcess();
 
-    ExecutionManager.getInstance(getProject()).getContentManager().getAllDescriptors().forEach((Disposer::dispose));
+    if (!myContentDescriptorRef.isNull()) {
+      UIUtil.invokeAndWaitIfNeeded((Runnable)() -> Disposer.dispose(myContentDescriptorRef.get()));
+    }
 
     if (myConsoleView != null) {
       new WriteAction() {
         @Override
-        protected void run(@NotNull Result result) throws Throwable {
+        protected void run(@NotNull Result result) {
           Disposer.dispose(myConsoleView);
           myConsoleView = null;
         }
       }.execute();
     }
+
+    return shutdownFuture;
   }
 
   @Override
@@ -144,7 +161,14 @@ public class PyConsoleTask extends PyExecutionFixtureTestTask {
     PydevConsoleRunner consoleRunner =
       new PydevConsoleRunnerImpl(project, sdk, PyConsoleType.PYTHON, myFixture.getTempDirPath(), Maps.newHashMap(),
                                  PyConsoleOptions.getInstance(project).getPythonConsoleSettings(),
-                                 (s) -> {});
+                                 (s) -> {
+                                 }, PydevConsoleRunnerImpl.CONSOLE_START_COMMAND) {
+        protected void showContentDescriptor(RunContentDescriptor contentDescriptor) {
+          myContentDescriptorRef.set(contentDescriptor);
+          super.showContentDescriptor(contentDescriptor);
+        }
+      };
+
     before();
 
     myConsoleInitSemaphore = new Semaphore(0);
@@ -182,7 +206,7 @@ public class PyConsoleTask extends PyExecutionFixtureTestTask {
 
     myProcessHandler.addProcessListener(new ProcessAdapter() {
       @Override
-      public void processTerminated(ProcessEvent event) {
+      public void processTerminated(@NotNull ProcessEvent event) {
         if (event.getExitCode() != 0 && !myProcessCanTerminate) {
           Assert.fail("Process terminated unexpectedly\n" + output());
         }
@@ -212,7 +236,7 @@ public class PyConsoleTask extends PyExecutionFixtureTestTask {
     }
   }
 
-  private void disposeConsoleProcess() throws InterruptedException {
+  private void disposeConsoleProcess() {
     myProcessHandler.destroyProcess();
 
     waitFor(myProcessHandler);
@@ -316,12 +340,7 @@ public class PyConsoleTask extends PyExecutionFixtureTestTask {
   protected void exec(final String command) throws InterruptedException {
     waitForReady();
     myCommandSemaphore.acquire(1);
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        myConsoleView.executeInConsole(command);
-      }
-    });
+    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> myConsoleView.executeInConsole(command));
     Assert.assertTrue(String.format("Command execution wasn't finished: `%s` \n" +
                                     "Output: %s", command, output()), waitFor(myCommandSemaphore));
     myCommandSemaphore.release();
@@ -380,13 +399,9 @@ public class PyConsoleTask extends PyExecutionFixtureTestTask {
 
 
   public void addTextToEditor(final String text) {
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-                                   @Override
-                                   public void run() {
-                                     getConsoleView().setInputText(text);
-                                     PsiDocumentManager.getInstance(getProject()).commitAllDocuments();
-                                   }
-                                 }
-    );
+    TransactionGuard.getInstance().submitTransactionAndWait(() -> {
+      getConsoleView().setInputText(text);
+      PsiDocumentManager.getInstance(getProject()).commitAllDocuments();
+    });
   }
 }

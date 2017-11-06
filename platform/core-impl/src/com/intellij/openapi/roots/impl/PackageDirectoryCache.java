@@ -15,6 +15,8 @@
  */
 package com.intellij.openapi.roots.impl;
 
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.openapi.util.VolatileNotNullLazyValue;
 import com.intellij.openapi.util.registry.Registry;
@@ -31,12 +33,21 @@ import java.util.*;
  * @author peter
  */
 public class PackageDirectoryCache {
-  private final MultiMap<String, VirtualFile> myRootsByPackagePrefix;
+  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.roots.impl.PackageDirectoryCache");
+  private final MultiMap<String, VirtualFile> myRootsByPackagePrefix = MultiMap.create();
   private final Map<String, PackageInfo> myDirectoriesByPackageNameCache = ContainerUtil.newConcurrentMap();
   private final Set<String> myNonExistentPackages = ContainerUtil.newConcurrentSet();
 
   public PackageDirectoryCache(@NotNull MultiMap<String, VirtualFile> rootsByPackagePrefix) {
-    myRootsByPackagePrefix = rootsByPackagePrefix;
+    for (String prefix : rootsByPackagePrefix.keySet()) {
+      for (VirtualFile file : rootsByPackagePrefix.get(prefix)) {
+        if (!file.isValid()) {
+          LOG.error("Invalid root: " + file);
+        } else {
+          myRootsByPackagePrefix.putValue(prefix, file);
+        }
+      }
+    }
   }
 
   public void onLowMemory() {
@@ -46,7 +57,7 @@ public class PackageDirectoryCache {
   @NotNull
   public List<VirtualFile> getDirectoriesByPackageName(@NotNull final String packageName) {
     PackageInfo info = getPackageInfo(packageName);
-    return info == null ? Collections.<VirtualFile>emptyList() : info.myPackageDirectories;
+    return info == null ? Collections.emptyList() : info.myPackageDirectories;
   }
 
   @Nullable
@@ -70,6 +81,7 @@ public class PackageDirectoryCache {
           }
           if (i < 0) break;
           i = packageName.lastIndexOf('.', i - 1);
+          ProgressManager.checkCanceled();
         }
       }
 
@@ -91,7 +103,7 @@ public class PackageDirectoryCache {
 
   public Set<String> getSubpackageNames(@NotNull final String packageName) {
     final PackageInfo info = getPackageInfo(packageName);
-    return info == null ? Collections.<String>emptySet() : Collections.unmodifiableSet(info.mySubPackages.getValue().keySet());
+    return info == null ? Collections.emptySet() : Collections.unmodifiableSet(info.mySubPackages.getValue().keySet());
   }
 
   private class PackageInfo {

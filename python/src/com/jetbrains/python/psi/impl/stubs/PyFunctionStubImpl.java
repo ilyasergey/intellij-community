@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,16 +28,27 @@ public class PyFunctionStubImpl extends StubBase<PyFunction> implements PyFuncti
   private final String myDocString;
   private final String myDeprecationMessage;
   private final boolean myAsync;
+  private final boolean myOnlyRaisesNotImplementedError;
   private final String myTypeComment;
+  private final String myAnnotation;
 
-  public PyFunctionStubImpl(@Nullable String name, @Nullable String docString, @Nullable String deprecationMessage, boolean isAsync,
-                            @Nullable String typeComment, final StubElement parent, @NotNull IStubElementType stubElementType) {
+  public PyFunctionStubImpl(@Nullable String name,
+                            @Nullable String docString,
+                            @Nullable String deprecationMessage,
+                            boolean isAsync,
+                            boolean onlyRaisesNotImplementedError,
+                            @Nullable String typeCommentContent,
+                            @Nullable String annotation, 
+                            final StubElement parent,
+                            @NotNull IStubElementType stubElementType) {
     super(parent, stubElementType);
     myName = name;
     myDocString = docString;
     myDeprecationMessage = deprecationMessage;
     myAsync = isAsync;
-    myTypeComment = typeComment;
+    myOnlyRaisesNotImplementedError = onlyRaisesNotImplementedError;
+    myTypeComment = typeCommentContent;
+    myAnnotation = annotation;
   }
 
   @Nullable
@@ -64,9 +75,20 @@ public class PyFunctionStubImpl extends StubBase<PyFunction> implements PyFuncti
     return myTypeComment;
   }
 
+  @Nullable
+  @Override
+  public String getAnnotation() {
+    return myAnnotation;
+  }
+
   @Override
   public boolean isAsync() {
     return myAsync;
+  }
+
+  @Override
+  public boolean onlyRaisesNotImplementedError() {
+    return myOnlyRaisesNotImplementedError;
   }
 
   @Override

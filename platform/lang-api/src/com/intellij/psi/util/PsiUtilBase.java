@@ -39,13 +39,12 @@ import com.intellij.psi.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
 import java.awt.*;
 import java.util.Comparator;
 
 public class PsiUtilBase extends PsiUtilCore implements PsiEditorUtil {
   private static final Logger LOG = Logger.getInstance("#com.intellij.psi.util.PsiUtilBase");
-  public static final Comparator<Language> LANGUAGE_COMPARATOR = (o1, o2) -> o1.getID().compareTo(o2.getID());
+  public static final Comparator<Language> LANGUAGE_COMPARATOR = Comparator.comparing(Language::getID);
 
   public static boolean isUnderPsiRoot(PsiFile root, PsiElement element) {
     PsiFile containingFile = element.getContainingFile();
@@ -74,10 +73,7 @@ public class PsiUtilBase extends PsiUtilCore implements PsiEditorUtil {
     Language lang = findLanguageFromElement(elt);
 
     if (caret.hasSelection()) {
-      final Language rangeLanguage = evaluateLanguageInRange(caret.getSelectionStart(), caret.getSelectionEnd(), file);
-      if (rangeLanguage == null) return file.getLanguage();
-
-      lang = rangeLanguage;
+      lang = evaluateLanguageInRange(caret.getSelectionStart(), caret.getSelectionEnd(), file);
     }
 
     return narrowLanguage(lang, file.getLanguage());
@@ -137,7 +133,14 @@ public class PsiUtilBase extends PsiUtilCore implements PsiEditorUtil {
           lang = language;
         }
         else if (lang != language) {
-          return null;
+          // correctly process the case when leaf element is a part of embedded fragment, but it is totally contained inside
+          // "parent" language
+          Language finalLang = lang;
+          final TextRange range = new TextRange(start, end);
+          final PsiElement wrappingParent = PsiTreeUtil.findFirstParent(
+            elt, false, element -> file.equals(element.getContainingFile()) && finalLang.equals(element.getLanguage()),
+            element -> element.getTextRange() != null && !range.contains(element.getTextRange()));
+          if (wrappingParent == null) return null;
         }
       }
       TextRange range = elt.getTextRange();
@@ -152,8 +155,8 @@ public class PsiUtilBase extends PsiUtilCore implements PsiEditorUtil {
     return narrowLanguage(lang, file.getLanguage());
   }
 
-  @Nullable
-  public static Language evaluateLanguageInRange(final int start, final int end, @NotNull PsiFile file) {
+  @NotNull
+  private static Language evaluateLanguageInRange(final int start, final int end, @NotNull PsiFile file) {
     PsiElement elt = getElementAtOffset(file, start);
 
     TextRange selectionRange = new TextRange(start, end);
@@ -195,7 +198,7 @@ public class PsiUtilBase extends PsiUtilCore implements PsiEditorUtil {
    * </ul>
    * <p/>
    * Please don't use this method for finding an editor for quick fix.
-   * @see {@link com.intellij.codeInspection.LocalQuickFixAndIntentionActionOnPsiElement}
+   * @see com.intellij.codeInspection.LocalQuickFixAndIntentionActionOnPsiElement
    *
    * @param element   target element
    * @return          editor that works with a given element if the one is found; {@code null} otherwise
@@ -221,17 +224,15 @@ public class PsiUtilBase extends PsiUtilCore implements PsiEditorUtil {
         }
       }
     }
-    if (SwingUtilities.isEventDispatchThread()) {
-      // We assume that data context from focus-based retrieval should success if performed from EDT.
-      AsyncResult<DataContext> asyncResult = DataManager.getInstance().getDataContextFromFocus();
-      if (asyncResult.isDone()) {
-        Editor editor = CommonDataKeys.EDITOR.getData(asyncResult.getResult());
-        if (editor != null) {
-          Document cachedDocument = PsiDocumentManager.getInstance(project).getCachedDocument(psiFile);
-          // Ensure that target editor is found by checking its document against the one from given PSI element.
-          if (cachedDocument == editor.getDocument()) {
-            return editor;
-          }
+    // We assume that data context from focus-based retrieval should success if performed from EDT.
+    AsyncResult<DataContext> asyncResult = DataManager.getInstance().getDataContextFromFocus();
+    if (asyncResult.isDone()) {
+      Editor editor = CommonDataKeys.EDITOR.getData(asyncResult.getResult());
+      if (editor != null) {
+        Document cachedDocument = PsiDocumentManager.getInstance(project).getCachedDocument(psiFile);
+        // Ensure that target editor is found by checking its document against the one from given PSI element.
+        if (cachedDocument == editor.getDocument()) {
+          return editor;
         }
       }
     }

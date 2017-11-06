@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.find;
 
 import com.intellij.find.editorHeaderActions.ContextAwareShortcutProvider;
@@ -31,10 +17,7 @@ import com.intellij.openapi.util.BooleanGetter;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFocusManager;
-import com.intellij.ui.DocumentAdapter;
-import com.intellij.ui.LightColors;
-import com.intellij.ui.OnePixelSplitter;
-import com.intellij.ui.SearchTextField;
+import com.intellij.ui.*;
 import com.intellij.ui.components.panels.NonOpaquePanel;
 import com.intellij.ui.components.panels.Wrapper;
 import com.intellij.ui.speedSearch.SpeedSearchSupply;
@@ -57,8 +40,6 @@ import java.util.List;
 import static java.awt.event.InputEvent.*;
 
 public class SearchReplaceComponent extends EditorHeaderComponent implements DataProvider {
-  static final KeyStroke NEW_LINE_KEYSTROKE
-    = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, (SystemInfo.isMac ? META_DOWN_MASK : CTRL_DOWN_MASK) | SHIFT_DOWN_MASK);
   private final EventDispatcher<Listener> myEventDispatcher = EventDispatcher.create(Listener.class);
 
   private final MyTextComponentWrapper mySearchFieldWrapper;
@@ -259,7 +240,7 @@ public class SearchReplaceComponent extends EditorHeaderComponent implements Dat
   @Override
   public Insets getInsets() {
     Insets insets = super.getInsets();
-    if (UIUtil.isUnderGTKLookAndFeel() || UIUtil.isUnderNimbusLookAndFeel()) {
+    if (UIUtil.isUnderGTKLookAndFeel()) {
       insets.top += 1;
       insets.bottom += 2;
     }
@@ -435,36 +416,10 @@ public class SearchReplaceComponent extends EditorHeaderComponent implements Dat
       SearchTextArea textArea = new SearchTextArea(search);
       textComponent = textArea.getTextArea();
       ((JTextArea)textComponent).setRows(isMultiline() ? 2 : 1);
-      KeymapUtil.reassignAction(textComponent,
-                                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0),
-                                NEW_LINE_KEYSTROKE,
-                                WHEN_FOCUSED);
-
-    textComponent.registerKeyboardAction(e -> {
-      if (isMultiline(textComponent)) {
-        if (textComponent.isEditable() && textComponent.isEnabled()) {
-          textComponent.replaceSelection("\t");
-        }
-        else {
-          UIManager.getLookAndFeel().provideErrorFeedback(textComponent);
-        }
-      }
-      else {
-        textComponent.transferFocus();
-      }
-    }, KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), WHEN_FOCUSED);
-
-    textComponent.registerKeyboardAction(e -> textComponent.transferFocusBackward(), KeyStroke.getKeyStroke(KeyEvent.VK_TAB, SHIFT_DOWN_MASK), WHEN_FOCUSED);
 
     wrapper.setContent(textArea);
 
     UIUtil.addUndoRedoActions(textComponent);
-
-    if (UIUtil.isUnderWindowsLookAndFeel()) {
-      textComponent.setFont(UIManager.getFont("TextField.font"));
-    } else {
-      Utils.setSmallerFont(textComponent);
-    }
 
     textComponent.putClientProperty("AuxEditorComponent", Boolean.TRUE);
     textComponent.setBackground(UIUtil.getTextFieldBackground());
@@ -506,11 +461,6 @@ public class SearchReplaceComponent extends EditorHeaderComponent implements Dat
   private static void adjustRows(@NotNull JTextArea area) {
     area.setRows(Math.max(1, Math.min(3, StringUtil.countChars(area.getText(), '\n') + 1)));
   }
-
-  private static boolean isMultiline(@NotNull JTextComponent component) {
-    return component.getText().contains("\n");
-  }
-
 
   private void installCloseOnEscapeAction(@NotNull JTextComponent c) {
     ActionListener action = new ActionListener() {
@@ -576,7 +526,9 @@ public class SearchReplaceComponent extends EditorHeaderComponent implements Dat
     toolbar.setForceMinimumSize(true);
     toolbar.setReservePlaceAutoPopupIcon(false);
     toolbar.setSecondaryButtonPopupStateModifier(mySearchToolbar1PopupStateModifier);
-    toolbar.setSecondaryActionsTooltip("More Options(" + ShowMoreOptions.SHORT_CUT + ")");
+    toolbar.setSecondaryActionsTooltip("Show Filter Popup (" + KeymapUtil.getShortcutText(ShowMoreOptions.SHORT_CUT) + ")");
+    toolbar.setSecondaryActionsIcon(AllIcons.General.Filter);
+
     new ShowMoreOptions(toolbar, mySearchFieldWrapper);
     return toolbar;
   }

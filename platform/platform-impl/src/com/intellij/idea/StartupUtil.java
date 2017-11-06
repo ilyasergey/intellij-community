@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.idea;
 
 import com.intellij.ide.cloudConfig.CloudConfigProvider;
@@ -38,7 +24,6 @@ import com.intellij.ui.AppUIUtil;
 import com.intellij.util.Consumer;
 import com.intellij.util.EnvironmentUtil;
 import com.intellij.util.PlatformUtils;
-import com.intellij.util.lang.UrlClassLoader;
 import org.apache.log4j.ConsoleAppender;
 import org.apache.log4j.Level;
 import org.apache.log4j.PatternLayout;
@@ -151,8 +136,7 @@ public class StartupUtil {
    * Checks if the program can run under the JDK it was started with.
    */
   private static boolean checkJdkVersion() {
-    String jreCheck = System.getProperty("idea.jre.check");
-    if (jreCheck != null && "true".equals(jreCheck)) {
+    if ("true".equals(System.getProperty("idea.jre.check"))) {
       try {
         // try to find a class from tools.jar
         Class.forName("com.sun.jdi.Field", false, StartupUtil.class.getClassLoader());
@@ -169,18 +153,12 @@ public class StartupUtil {
         Main.showMessage("JDK Required", message, true);
         return false;
       }
-
-      if (StringUtil.containsIgnoreCase(System.getProperty("java.vm.name", ""), "OpenJDK") && !SystemInfo.isJavaVersionAtLeast("1.7")) {
-        String message = "OpenJDK 6 is not supported. Please use Oracle Java or newer OpenJDK.";
-        Main.showMessage("Unsupported JVM", message, true);
-        return false;
-      }
     }
-    jreCheck = System.getProperty("idea.64bit.check");
-    if (jreCheck != null && "true".equals(jreCheck)) {
+
+    if ("true".equals(System.getProperty("idea.64bit.check"))) {
       if (PlatformUtils.isCidr() && !SystemInfo.is64Bit) {
-          String message = "32-bit JVM is not supported. Please install 64-bit version.";
-          Main.showMessage("Unsupported JVM", message, true);
+        String message = "32-bit JVM is not supported. Please install 64-bit version.";
+        Main.showMessage("Unsupported JVM", message, true);
         return false;
       }
     }
@@ -342,25 +320,11 @@ public class StartupUtil {
     if (System.getProperty("jna.nosys") == null) {
       System.setProperty("jna.nosys", "true");  // prefer bundled JNA dispatcher lib
     }
-    try {
-      JnaLoader.load(log);
-    }
-    catch (Throwable t) {
-      log.error("Unable to load JNA library (OS: " + SystemInfo.OS_NAME + " " + SystemInfo.OS_VERSION + ")", t);
-    }
+    JnaLoader.load(log);
 
     if (SystemInfo.isWin2kOrNewer) {
+      //noinspection ResultOfMethodCallIgnored
       IdeaWin32.isAvailable();  // logging is done there
-    }
-
-    if (SystemInfo.isWin2kOrNewer && !Main.isHeadless()) {
-      try {
-        UrlClassLoader.loadPlatformLibrary("focusKiller");
-        log.info("Using \"FocusKiller\" library to prevent focus stealing.");
-      }
-      catch (Throwable t) {
-        log.info("\"FocusKiller\" library not found or there were problems loading it.", t);
-      }
     }
 
     if (SystemInfo.isWindows) {

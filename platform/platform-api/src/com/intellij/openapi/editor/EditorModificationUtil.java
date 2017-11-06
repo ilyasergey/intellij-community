@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import com.intellij.openapi.editor.textarea.TextComponentEditor;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.LineTokenizer;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.util.Producer;
@@ -37,6 +38,8 @@ import java.util.LinkedList;
 import java.util.List;
 
 public class EditorModificationUtil {
+  public static final Key<String> READ_ONLY_VIEW_MESSAGE_KEY = Key.create("READ_ONLY_VIEW_MESSAGE_KEY");
+
   private EditorModificationUtil() { }
 
   public static void deleteSelectedText(Editor editor) {
@@ -97,28 +100,18 @@ public class EditorModificationUtil {
   }
 
   private static int insertStringAtCaretNoScrolling(Editor editor, @NotNull String s, boolean toProcessOverwriteMode, boolean toMoveCaret, int caretShift) {
-    final SelectionModel selectionModel = editor.getSelectionModel();
-    if (selectionModel.hasSelection()) {
-      VisualPosition startPosition = selectionModel.getSelectionStartPosition();
-      if (editor.isColumnMode() && editor.getCaretModel().supportsMultipleCarets() && startPosition != null) {
-        editor.getCaretModel().moveToVisualPosition(startPosition);
-      }
-      else {
-        editor.getCaretModel().moveToOffset(selectionModel.getSelectionStart(), true);
-      }
-    }
-
     // There is a possible case that particular soft wraps become hard wraps if the caret is located at soft wrap-introduced virtual
     // space, hence, we need to give editor a chance to react accordingly.
     editor.getSoftWrapModel().beforeDocumentChangeAtCaret();
     int oldOffset = editor.getCaretModel().getOffset();
 
-    String filler = calcStringToFillVirtualSpace(editor);
+    String filler = editor.getSelectionModel().hasSelection() ? "" : calcStringToFillVirtualSpace(editor);
     if (filler.length() > 0) {
       s = filler + s;
     }
 
     Document document = editor.getDocument();
+    SelectionModel selectionModel = editor.getSelectionModel();
     if (editor.isInsertMode() || !toProcessOverwriteMode) {
       if (selectionModel.hasSelection()) {
         oldOffset = selectionModel.getSelectionStart();
@@ -324,7 +317,7 @@ public class EditorModificationUtil {
   }
 
   /**
-   * Inserts given string at each caret's position. Effective caret shift will be equal to <code>caretShift</code> for each caret.
+   * Inserts given string at each caret's position. Effective caret shift will be equal to {@code caretShift} for each caret.
    */
   public static void typeInStringAtCaretHonorMultipleCarets(final Editor editor, @NotNull final String str, final boolean toProcessOverwriteMode, final int caretShift)
     throws ReadOnlyFragmentModificationException
@@ -422,7 +415,8 @@ public class EditorModificationUtil {
     if (!editor.isViewer()) return true;
     if (ApplicationManager.getApplication().isHeadlessEnvironment() || editor instanceof TextComponentEditor) return false;
 
-    HintManager.getInstance().showInformationHint(editor, EditorBundle.message("editing.viewer.hint"));
+    String data = READ_ONLY_VIEW_MESSAGE_KEY.get(editor);
+    HintManager.getInstance().showInformationHint(editor, data == null ? EditorBundle.message("editing.viewer.hint") : data);
     return false;
   }
 }

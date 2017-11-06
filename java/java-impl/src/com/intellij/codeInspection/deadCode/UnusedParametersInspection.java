@@ -14,14 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: Dec 24, 2001
- * Time: 2:46:32 PM
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.codeInspection.deadCode;
 
 import com.intellij.analysis.AnalysisScope;
@@ -108,11 +100,11 @@ class UnusedParametersInspection extends GlobalJavaBatchInspectionTool {
         if (refEntity instanceof RefMethod) {
           RefMethod refMethod = (RefMethod)refEntity;
           final PsiModifierListOwner element = refMethod.getElement();
-          if (element instanceof PsiMethod) { //implicit constructors are invisible
-            PsiMethod psiMethod = (PsiMethod)element;
-            if (!refMethod.isStatic() && !refMethod.isConstructor() && !PsiModifier.PRIVATE.equals(refMethod.getAccessModifier())) {
-              final ArrayList<RefParameter> unusedParameters = getUnusedParameters(refMethod);
-              if (unusedParameters.isEmpty()) return;
+          if (!refMethod.isStatic() && !refMethod.isConstructor() && !PsiModifier.PRIVATE.equals(refMethod.getAccessModifier())) {
+            final ArrayList<RefParameter> unusedParameters = getUnusedParameters(refMethod);
+            if (unusedParameters.isEmpty()) return;
+            if (element instanceof PsiMethod) {
+              PsiMethod psiMethod = (PsiMethod)element;
               PsiMethod[] derived = OverridingMethodsSearch.search(psiMethod).toArray(PsiMethod.EMPTY_ARRAY);
               for (final RefParameter refParameter : unusedParameters) {
                 if (refMethod.isAbstract() && derived.length == 0) {
@@ -125,7 +117,7 @@ class UnusedParametersInspection extends GlobalJavaBatchInspectionTool {
                   for (int i = 0; i < derived.length && !found[0]; i++) {
                     if (scope == null || !scope.contains(derived[i])) {
                       final PsiParameter[] parameters = derived[i].getParameterList().getParameters();
-                      if (parameters.length >= idx) continue;
+                      if (parameters.length < idx) continue;
                       PsiParameter psiParameter = parameters[idx];
                       ReferencesSearch.search(psiParameter, helper.getUseScope(psiParameter), false)
                         .forEach(new PsiReferenceProcessorAdapter(
@@ -133,7 +125,7 @@ class UnusedParametersInspection extends GlobalJavaBatchInspectionTool {
                             @Override
                             public boolean execute(PsiReference element) {
                               refParameter.parameterReferenced(false);
-                              processor.ignoreElement(refParameter);
+                              processor.ignoreElement(refMethod);
                               found[0] = true;
                               return false;
                             }

@@ -23,6 +23,7 @@ import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NamedRunnable;
 import com.intellij.openapi.vcs.ui.VcsBalloonProblemNotifier;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFocusManager;
@@ -47,7 +48,7 @@ import java.util.Collection;
 import java.util.concurrent.Future;
 
 public abstract class AbstractVcsLogUi implements VcsLogUi, Disposable {
-  private static final Logger LOG = Logger.getInstance(VcsLogUiImpl.class);
+  private static final Logger LOG = Logger.getInstance(AbstractVcsLogUi.class);
   public static final ExtensionPointName<VcsLogHighlighterFactory> LOG_HIGHLIGHTER_FACTORY_EP =
     ExtensionPointName.create("com.intellij.logHighlighterFactory");
 
@@ -72,7 +73,6 @@ public abstract class AbstractVcsLogUi implements VcsLogUi, Disposable {
     myColorManager = manager;
 
     Disposer.register(this, myRefresher);
-    Disposer.register(logData, this);
 
     myLog = new VcsLogImpl(logData, this);
     myVisiblePack = VisiblePack.EMPTY;
@@ -173,9 +173,9 @@ public abstract class AbstractVcsLogUi implements VcsLogUi, Disposable {
     jumpTo(commitHash, GraphTableModel::getRowOfCommitByPartOfHash, future);
   }
 
-  private <T> void jumpTo(@NotNull final T commitId,
-                          @NotNull final PairFunction<GraphTableModel, T, Integer> rowGetter,
-                          @NotNull final SettableFuture<Boolean> future) {
+  protected <T> void jumpTo(@NotNull final T commitId,
+                            @NotNull final PairFunction<GraphTableModel, T, Integer> rowGetter,
+                            @NotNull final SettableFuture<Boolean> future) {
     if (future.isCancelled()) return;
 
     GraphTableModel model = getTable().getModel();
@@ -192,23 +192,23 @@ public abstract class AbstractVcsLogUi implements VcsLogUi, Disposable {
       invokeOnChange(() -> jumpTo(commitId, rowGetter, future));
     }
     else {
-      commitNotFound(commitId.toString());
+      handleCommitNotFound(commitId, rowGetter);
       future.set(false);
     }
   }
 
-  private void showMessage(@NotNull MessageType messageType, @NotNull String message) {
-    LOG.info(message);
-    VcsBalloonProblemNotifier.showOverChangesView(myProject, message, messageType);
+  protected <T> void handleCommitNotFound(@NotNull T commitId, @NotNull PairFunction<GraphTableModel, T, Integer> rowGetter) {
+    VcsBalloonProblemNotifier.showOverChangesView(myProject, "Commit " + commitId.toString() + " not found.", MessageType.WARNING);
   }
 
-  private void commitNotFound(@NotNull String commitHash) {
-    if (getFilters().isEmpty()) {
-      showMessage(MessageType.WARNING, "Commit " + commitHash + " not found");
-    }
-    else {
-      showMessage(MessageType.WARNING, "Commit " + commitHash + " doesn't exist or doesn't match the active filters");
-    }
+  protected void showWarningWithLink(@NotNull String mainText, @NotNull String linkText, @NotNull Runnable onClick) {
+    VcsBalloonProblemNotifier.showOverChangesView(myProject, mainText, MessageType.WARNING,
+                                                  new NamedRunnable(linkText) {
+                                                    @Override
+                                                    public void run() {
+                                                      onClick.run();
+                                                    }
+                                                  });
   }
 
   @Override
@@ -244,6 +244,7 @@ public abstract class AbstractVcsLogUi implements VcsLogUi, Disposable {
 
   @Override
   public void dispose() {
+    LOG.assertTrue(ApplicationManager.getApplication().isDispatchThread());
     myRefresher.removeVisiblePackChangeListener(myVisiblePackChangeListener);
     getTable().removeAllHighlighters();
     myVisiblePack = VisiblePack.EMPTY;

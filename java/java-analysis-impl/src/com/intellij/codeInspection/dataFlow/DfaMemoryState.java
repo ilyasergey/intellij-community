@@ -16,20 +16,12 @@
 package com.intellij.codeInspection.dataFlow;
 
 import com.intellij.codeInspection.dataFlow.value.DfaConstValue;
-import com.intellij.codeInspection.dataFlow.value.DfaRelationValue;
+import com.intellij.codeInspection.dataFlow.value.DfaPsiType;
 import com.intellij.codeInspection.dataFlow.value.DfaValue;
 import com.intellij.codeInspection.dataFlow.value.DfaVariableValue;
-import com.intellij.util.ThreeState;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Created by IntelliJ IDEA.
- * User: max
- * Date: Jul 16, 2003
- * Time: 10:25:44 PM
- * To change this template use Options | File Templates.
- */
 public interface DfaMemoryState {
   @NotNull
   DfaMemoryState createCopy();
@@ -37,25 +29,60 @@ public interface DfaMemoryState {
   @NotNull
   DfaMemoryState createClosureState();
 
-  DfaValue pop();
-  DfaValue peek();
+  /**
+   * Pops single value from the top of the stack and returns it
+   * @return popped value
+   * @throws com.intellij.codeInspection.dataFlow.instructions.EmptyStackInstruction if stack is empty
+   */
+  @NotNull DfaValue pop();
+
+  /**
+   * Reads a value from the top of the stack without popping it
+   * @return top of stack value
+   * @throws com.intellij.codeInspection.dataFlow.instructions.EmptyStackInstruction if stack is empty
+   */
+  @NotNull DfaValue peek();
+
+  /**
+   * Pushes given value to the stack
+   * @param value to push
+   */
   void push(@NotNull DfaValue value);
 
   void emptyStack();
 
   void setVarValue(DfaVariableValue var, DfaValue value);
 
-  boolean applyInstanceofOrNull(@NotNull DfaRelationValue dfaCond);
-
-  void applyIsPresentCheck(boolean present, DfaValue qualifier);
+  /**
+   * Ensures that top-of-stack value is either null or belongs to the supplied type
+   *
+   * @param type the type to cast to
+   * @return true if cast is successful; false if top-of-stack value type is incompatible with supplied type
+   * @throws com.intellij.codeInspection.dataFlow.instructions.EmptyStackInstruction if stack is empty
+   */
+  boolean castTopOfStack(@NotNull DfaPsiType type);
 
   boolean applyCondition(DfaValue dfaCond);
 
-  ThreeState checkOptional(DfaValue value);
+  boolean applyContractCondition(DfaValue dfaCond);
+
+  /**
+   * Returns a value fact about supplied value within the context of current memory state.
+   * Returns null if the fact of given type is not known or not applicable to a given value.
+   *
+   * @param factType a type of the fact to get
+   * @param value a value to get the fact about
+   * @param <T> a type of the fact value
+   * @return a fact about value, if known
+   */
+  @Nullable
+  <T> T getValueFact(@NotNull DfaFactType<T> factType, @NotNull DfaValue value);
+
+  void forceNotNull(@NotNull DfaVariableValue var);
 
   void flushFields();
 
-  void flushVariable(DfaVariableValue variable);
+  void flushVariable(@NotNull DfaVariableValue variable);
 
   boolean isNull(DfaValue dfaVar);
 
@@ -74,4 +101,6 @@ public interface DfaMemoryState {
   void markEphemeral();
   
   boolean isEphemeral();
+
+  boolean isEmptyStack();
 }

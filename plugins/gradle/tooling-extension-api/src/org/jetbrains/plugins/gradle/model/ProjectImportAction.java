@@ -39,7 +39,7 @@ import java.util.*;
  */
 public class ProjectImportAction implements BuildAction<ProjectImportAction.AllModels>, Serializable {
 
-  private final Set<Class> myExtraProjectModelClasses = new HashSet<Class>();
+  private final Set<Class> myExtraProjectModelClasses = new LinkedHashSet<Class>();
   private final boolean myIsPreviewMode;
   private final boolean myIsGradleProjectDirSupported;
   private final boolean myIsCompositeBuildsSupported;
@@ -174,11 +174,6 @@ public class ProjectImportAction implements BuildAction<ProjectImportAction.AllM
 
     public void addExtraProject(@NotNull Object project, @NotNull Class modelClazz, @Nullable IdeaModule subPropject) {
       super.addExtraProject(project, modelClazz, subPropject != null ? subPropject.getGradleProject() : null);
-    }
-
-    @NotNull
-    protected String extractMapKey(Class modelClazz, @Nullable IdeaModule module) {
-      return extractMapKey(modelClazz, module);
     }
 
     @NotNull

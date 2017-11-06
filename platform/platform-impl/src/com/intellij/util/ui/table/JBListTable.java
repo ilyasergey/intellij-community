@@ -27,16 +27,14 @@ import com.intellij.ui.EditorSettingsProvider;
 import com.intellij.ui.EditorTextField;
 import com.intellij.ui.TableUtil;
 import com.intellij.ui.table.JBTable;
-import com.intellij.util.ui.AbstractTableCellEditor;
-import com.intellij.util.ui.MouseEventHandler;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.*;
 import gnu.trove.TIntArrayList;
 import gnu.trove.TIntObjectHashMap;
 import gnu.trove.TIntObjectProcedure;
-import gnu.trove.TIntProcedure;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import javax.swing.Timer;
 import javax.swing.event.ChangeEvent;
 import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableCellRenderer;
@@ -120,7 +118,7 @@ public abstract class JBListTable {
     };
 
     Font font = EditorColorsManager.getInstance().getGlobalScheme().getFont(EditorFontType.PLAIN);
-    font = new Font(font.getFontName(), font.getStyle(), 12);
+    font = new Font(font.getFontName(), font.getStyle(), JBUI.scaleFontSize(12));
     field.setFont(font);
     field.addSettingsProvider(EditorSettingsProvider.NO_WHITESPACE);
 
@@ -269,12 +267,9 @@ public abstract class JBListTable {
           return true;
         }
       });
-      completeRows.forEach(new TIntProcedure() {
-        @Override
-        public boolean execute(int row) {
-          myRowAnimationStates.remove(row);
-          return true;
-        }
+      completeRows.forEach(row -> {
+        myRowAnimationStates.remove(row);
+        return true;
       });
       if (myRowAnimationStates.isEmpty()) {
         stopAnimation();
@@ -305,6 +300,9 @@ public abstract class JBListTable {
                         currentRowHeight + (leftToAnimate < 0 ? -resizeAbs : resizeAbs);
         myTable.setRowHeight(myRow, newHeight);
         myLastUpdateTime = currentTime;
+
+        TableUtil.scrollSelectionToVisible(myTable);
+
         return myTargetHeight == newHeight;
       }
     }

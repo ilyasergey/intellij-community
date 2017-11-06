@@ -20,10 +20,12 @@ import com.intellij.psi.impl.source.tree.FileElement;
 import com.intellij.psi.stubs.PsiFileStubImpl;
 import com.intellij.psi.stubs.StubTree;
 import com.intellij.reference.SoftReference;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.lang.ref.Reference;
+import java.util.Set;
 
 /**
  * @author peter
@@ -67,8 +69,10 @@ final class FileTrees {
     return new FileTrees(myStub, ast, true, useStrongRefs);
   }
 
-  FileTrees withExclusiveStub(@NotNull StubTree stub) {
-    assert derefTreeElement() == null && !useStrongRefs : this;
+  FileTrees withExclusiveStub(@NotNull StubTree stub, Set<PsiFileImpl> allRoots) {
+    if (derefTreeElement() != null || useStrongRefs) {
+      throw new RuntimeException(toString() + "; roots=" + allRoots + "; root trees=" + ContainerUtil.map(allRoots, PsiFileImpl::getFileTrees));
+    }
     return new FileTrees(new SoftReference<>(stub), null, false, false);
   }
 

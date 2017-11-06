@@ -3,7 +3,7 @@
 # Any use of `Any` below means I couldn't figure out the type.
 
 import typing
-from typing import Any, Dict, List, MutableMapping, Tuple, Union
+from typing import Any, Dict, List, MutableMapping, Tuple, Union, Optional
 from typing import Iterable, Iterator, SupportsBytes
 
 
@@ -11,34 +11,37 @@ from typing import Iterable, Iterator, SupportsBytes
 # unnecessary constraint. It seems reasonable to constrain each
 # List/Dict argument to use one type consistently, though, and it is
 # necessary in order to keep these brief.
-AnyStr = Union[str, bytes]
-ListAnyStr = Union[List[str], List[bytes]]
-DictAnyStr = Union[Dict[str, str], Dict[bytes, bytes]]
-Dict_Tuple2AnyStr_Any = Union[Dict[Tuple[str, str], Any], Tuple[bytes, bytes], Any]
+_AnyStr = Union[str, bytes]
+_ListAnyStr = Union[List[str], List[bytes]]
+_DictAnyStr = Union[Dict[str, str], Dict[bytes, bytes]]
+_Dict_Tuple2AnyStr_Any = Union[Dict[Tuple[str, str], Any], Tuple[bytes, bytes], Any]
 
 
-class ElementChildIterator(Iterator['_Element;']):
+class ElementChildIterator(Iterator['_Element']):
     def __iter__(self) -> 'ElementChildIterator': ...
     def __next__(self) -> '_Element': ...
 
 class _Element(Iterable['_Element']):
-    def addprevious(self, element: '_Element') -> None:
-        pass
-
+    def addprevious(self, element: '_Element') -> None: ...
+    def addnext(self, element: '_Element') -> None: ...
+    def clear(self) -> None: ...
+    def get(self, key: _AnyStr, default: Optional[_AnyStr] = ...) -> _AnyStr: ...
+    def xpath(self, _path: _AnyStr, namespaces: Optional[_DictAnyStr] = ..., extensions: Any = ..., smart_strings: bool = ..., **_variables: Any) -> Any: ...
+    # indeed returns a Union[bool, float, _AnyStr, List[Union[ElementBase, _AnyStr, Tuple[]]]]: ...
+    # http://lxml.de/xpathxslt.html#xpath-return-values
     attrib = ...  # type: MutableMapping[str, str]
-    text = ...  # type: AnyStr
+    text = ...  # type: _AnyStr
     tag = ...  # type: str
     def append(self, element: '_Element') -> '_Element': ...
     def __iter__(self) -> ElementChildIterator: ...
 
-class ElementBase(_Element):
-    pass
+class ElementBase(_Element): ...
 
 class _ElementTree:
     def write(self,
-              file: Union[AnyStr, typing.IO],
-              encoding: AnyStr = ...,
-              method: AnyStr = ...,
+              file: Union[_AnyStr, typing.IO],
+              encoding: _AnyStr = ...,
+              method: _AnyStr = ...,
               pretty_print: bool = ...,
               xml_declaration: Any = ...,
               with_tail: Any = ...,
@@ -46,80 +49,55 @@ class _ElementTree:
               compression: int = ...,
               exclusive: bool = ...,
               with_comments: bool = ...,
-              inclusive_ns_prefixes: ListAnyStr = ...) -> None:
-        pass
+              inclusive_ns_prefixes: _ListAnyStr = ...) -> None: ...
+    def xpath(self, _path: _AnyStr, namespaces: Optional[_DictAnyStr] = ..., extensions: Any = ..., smart_strings: bool = ..., **_variables: Any) -> Any: ...
 
-class _XSLTResultTree(SupportsBytes):
-    pass
+class _XSLTResultTree(SupportsBytes): ...
 
-class _XSLTQuotedStringParam:
-    pass
+class _XSLTQuotedStringParam: ...
 
-class XMLParser:
-    pass
+class XMLParser: ...
 
 class XMLSchema:
     def __init__(self,
                  etree: Union[_Element, _ElementTree] = ...,
-                 file: Union[AnyStr, typing.IO] = ...) -> None:
-        pass
+                 file: Union[_AnyStr, typing.IO] = ...) -> None: ...
+    def assertValid(self, etree: Union[_Element, _ElementTree]) -> None: ...
 
-    def assertValid(self,
-                    etree: Union[_Element, _ElementTree]) -> None:
-        pass
-
-class XSLTAccessControl:
-    pass
+class XSLTAccessControl: ...
 
 class XSLT:
     def __init__(self,
                  xslt_input: Union[_Element, _ElementTree],
-                 extensions: Dict_Tuple2AnyStr_Any = ...,
+                 extensions: _Dict_Tuple2AnyStr_Any = ...,
                  regexp: bool = ...,
-                 access_control: XSLTAccessControl = ...) -> None:
-        pass
-
+                 access_control: XSLTAccessControl = ...) -> None: ...
     def __call__(self,
                  _input: Union[_Element, _ElementTree],
                  profile_run: bool = ...,
-                 **kwargs: Union[AnyStr, _XSLTQuotedStringParam]) -> _XSLTResultTree:
-        pass
-
+                 **kwargs: Union[_AnyStr, _XSLTQuotedStringParam]) -> _XSLTResultTree: ...
     @staticmethod
-    def strparam(s: AnyStr) -> _XSLTQuotedStringParam:
-        pass
+    def strparam(s: _AnyStr) -> _XSLTQuotedStringParam: ...
 
-def Element(_tag: AnyStr,
-            attrib: DictAnyStr = ...,
-            nsmap: DictAnyStr = ...,
-            **extra: AnyStr) -> _Element:
-    pass
-
-def SubElement(_parent: _Element, _tag: AnyStr,
-               attrib: DictAnyStr = ...,
-               nsmap: DictAnyStr = ...,
-               **extra: AnyStr) -> _Element:
-    pass
-
+def Element(_tag: _AnyStr,
+            attrib: _DictAnyStr = ...,
+            nsmap: _DictAnyStr = ...,
+            **extra: _AnyStr) -> _Element: ...
+def SubElement(_parent: _Element, _tag: _AnyStr,
+               attrib: _DictAnyStr = ...,
+               nsmap: _DictAnyStr = ...,
+               **extra: _AnyStr) -> _Element: ...
 def ElementTree(element: _Element = ...,
-                file: Union[AnyStr, typing.IO] = ...,
-                parser: XMLParser = ...) -> _ElementTree:
-    pass
-
-def ProcessingInstruction(target: AnyStr, text: AnyStr = ...) -> _Element:
-    pass
-
-def parse(source: Union[AnyStr, typing.IO],
+                file: Union[_AnyStr, typing.IO] = ...,
+                parser: XMLParser = ...) -> _ElementTree: ...
+def ProcessingInstruction(target: _AnyStr, text: _AnyStr = ...) -> _Element: ...
+def parse(source: Union[_AnyStr, typing.IO],
           parser: XMLParser = ...,
-          base_url: AnyStr = ...) -> _ElementTree:
-    pass
-
-
-def fromstring(text: AnyStr,
+          base_url: _AnyStr = ...) -> _ElementTree: ...
+def fromstring(text: _AnyStr,
                parser: XMLParser = ...,
                *,
-               base_url: AnyStr = ...) -> _Element: ...
-
+               base_url: _AnyStr = ...) -> _Element: ...
 def tostring(element_or_tree: Union[_Element, _ElementTree],
              encoding: Union[str, type] = ...,
              method: str = ...,
@@ -130,39 +108,26 @@ def tostring(element_or_tree: Union[_Element, _ElementTree],
              doctype: str = ...,
              exclusive: bool = ...,
              with_comments: bool = ...,
-             inclusive_ns_prefixes: Any = ...) -> AnyStr: ...
+             inclusive_ns_prefixes: Any = ...) -> _AnyStr: ...
 
+class _ErrorLog: ...
 
-class _ErrorLog:
-    pass
-
-
-class Error(Exception):
-    pass
+class Error(Exception): ...
 
 class LxmlError(Error):
     def __init__(self, message: Any, error_log: _ErrorLog = ...) -> None: ...
     error_log = ...  # type: _ErrorLog
 
-class DocumentInvalid(LxmlError):
-    pass
+class DocumentInvalid(LxmlError): ...
+class LxmlSyntaxError(LxmlError, SyntaxError): ...
+class ParseError(LxmlSyntaxError): ...
+class XMLSyntaxError(ParseError): ...
 
-class LxmlSyntaxError(LxmlError, SyntaxError):
-    pass
-
-class ParseError(LxmlSyntaxError):
-    pass
-
-class XMLSyntaxError(ParseError):
-    pass
-
-
-class _Validator:
-    pass
+class _Validator: ...
 
 class DTD(_Validator):
     def __init__(self,
-                 file: Union[AnyStr, typing.IO] = ...,
+                 file: Union[_AnyStr, typing.IO] = ...,
                  *,
                  external_id: Any = ...) -> None: ...
 

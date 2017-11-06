@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -72,7 +72,7 @@ public class ProjectSettingsStep extends ModuleWizardStep implements SettingsSte
     myModuleNameLocationComponent.bindModuleSettings(myNamePathComponent);
 
     myExpertDecorator = new HideableDecorator(myExpertPlaceholder, "Mor&e Settings", false);
-    myExpertPanel.setBorder(IdeBorderFactory.createEmptyBorder(0, IdeBorderFactory.TITLED_BORDER_INDENT, 5, 0));
+    myExpertPanel.setBorder(JBUI.Borders.empty(0, IdeBorderFactory.TITLED_BORDER_INDENT, 5, 0));
     myExpertDecorator.setContentComponent(myExpertPanel);
 
     if (myWizardContext.isCreatingNewProject()) {
@@ -191,8 +191,9 @@ public class ProjectSettingsStep extends ModuleWizardStep implements SettingsSte
   static void addField(String label, JComponent field, JPanel panel) {
     JLabel jLabel = new JBLabel(label);
     jLabel.setLabelFor(field);
+    jLabel.setVerticalAlignment(SwingConstants.TOP);
     panel.add(jLabel, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 0, 0, GridBagConstraints.WEST,
-                                             GridBagConstraints.NONE, JBUI.insetsBottom(5), 4, 0));
+                                             GridBagConstraints.VERTICAL, JBUI.insets(5, 0, 5, 0), 4, 0));
     panel.add(field, new GridBagConstraints(1, GridBagConstraints.RELATIVE, 1, 1, 1.0, 0, GridBagConstraints.CENTER,
                                             GridBagConstraints.HORIZONTAL, JBUI.insetsBottom(5), 0, 0));
   }

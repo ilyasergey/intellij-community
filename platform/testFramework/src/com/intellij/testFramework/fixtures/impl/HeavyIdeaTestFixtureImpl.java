@@ -37,10 +37,12 @@ import com.intellij.openapi.project.ex.ProjectManagerEx;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.encoding.EncodingManager;
+import com.intellij.openapi.vfs.impl.jar.JarFileSystemImpl;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageManagerImpl;
 import com.intellij.testFramework.*;
@@ -48,6 +50,7 @@ import com.intellij.testFramework.builders.ModuleFixtureBuilder;
 import com.intellij.testFramework.fixtures.HeavyIdeaTestFixture;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.PathUtil;
+import com.intellij.util.lang.CompoundRuntimeException;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -57,9 +60,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.Set;
+import java.nio.file.Files;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Creates new project for each test.
@@ -74,12 +77,13 @@ class HeavyIdeaTestFixtureImpl extends BaseFixture implements HeavyIdeaTestFixtu
   private EditorListenerTracker myEditorListenerTracker;
   private ThreadTracker myThreadTracker;
   private final String myName;
+  private SdkLeakTracker myOldSdks;
 
-  public HeavyIdeaTestFixtureImpl(@NotNull String name) {
+  HeavyIdeaTestFixtureImpl(@NotNull String name) {
     myName = name;
   }
 
-  protected void addModuleFixtureBuilder(ModuleFixtureBuilder builder) {
+  void addModuleFixtureBuilder(ModuleFixtureBuilder builder) {
     myModuleFixtureBuilders.add(builder);
   }
 
@@ -94,37 +98,51 @@ class HeavyIdeaTestFixtureImpl extends BaseFixture implements HeavyIdeaTestFixtu
     myEditorListenerTracker = new EditorListenerTracker();
     myThreadTracker = new ThreadTracker();
     InjectedLanguageManagerImpl.pushInjectors(getProject());
+    myOldSdks = new SdkLeakTracker();
   }
 
   @Override
   public void tearDown() throws Exception {
-    final Project project = getProject();
-
     RunAll runAll = new RunAll()
-      .append(() -> LightPlatformTestCase.doTearDown(project, myApplication, false))
+      .append(() -> LightPlatformTestCase.doTearDown(getProject(), myApplication))
       .append(() -> {
         for (ModuleFixtureBuilder moduleFixtureBuilder : myModuleFixtureBuilders) {
           moduleFixtureBuilder.getFixture().tearDown();
         }
       })
-      .append(() -> EdtTestUtil.runInEdtAndWait(() -> PlatformTestCase.closeAndDisposeProjectAndCheckThatNoOpenProjects(project)))
+      .append(() -> EdtTestUtil.runInEdtAndWait(() -> PlatformTestCase.closeAndDisposeProjectAndCheckThatNoOpenProjects(getProject())))
+      .append(() -> InjectedLanguageManagerImpl.checkInjectorsAreDisposed(getProject()))
       .append(() -> myProject = null);
 
+    ((JarFileSystemImpl)JarFileSystem.getInstance()).cleanupForNextTest();
+    
     for (File fileToDelete : myFilesToDelete) {
       runAll = runAll.append(() -> {
-        if (!FileUtil.delete(fileToDelete)) {
-          throw new IOException("Can't delete " + fileToDelete);
-        }
-      });
+        List<Throwable> errors = Files.walk(fileToDelete.toPath())
+          .sorted(Comparator.reverseOrder())
+          .map(x -> {
+            try {
+              Files.delete(x);
+              return null;
+            }
+            catch (IOException e) {
+              return e;
+            }
+          })
+          .filter(Objects::nonNull)
+          .collect(Collectors.toList());
+
+        CompoundRuntimeException.throwIfNotEmpty(errors);
+     });
     }
 
     runAll
       .append(super::tearDown)
       .append(() -> myEditorListenerTracker.checkListenersLeak())
       .append(() -> myThreadTracker.checkLeak())
-      .append(() -> LightPlatformTestCase.checkEditorsReleased())
-      .append(() -> PlatformTestCase.cleanupApplicationCaches(project))
-      .append(() -> InjectedLanguageManagerImpl.checkInjectorsAreDisposed(project))
+      .append(LightPlatformTestCase::checkEditorsReleased)
+      .append(() -> myOldSdks.checkForJdkTableLeaks())
+      .append(() -> PlatformTestCase.cleanupApplicationCaches(null))  // project is disposed by now, no point in passing it
       .run();
   }
 
@@ -185,7 +203,7 @@ class HeavyIdeaTestFixtureImpl extends BaseFixture implements HeavyIdeaTestFixtu
           FileEditorManagerEx manager = FileEditorManagerEx.getInstanceEx(myProject);
           return manager.getData(dataId, editor, editor.getCaretModel().getCurrentCaret());
         }
-        else if (LangDataKeys.IDE_VIEW.is(dataId)) {
+        if (LangDataKeys.IDE_VIEW.is(dataId)) {
           VirtualFile[] contentRoots = ProjectRootManager.getInstance(myProject).getContentRoots();
           final PsiDirectory psiDirectory = PsiManager.getInstance(myProject).findDirectory(contentRoots[0]);
           if (contentRoots.length > 0) {

@@ -2,11 +2,13 @@ package com.jetbrains.env;
 
 import com.google.common.collect.Lists;
 import com.intellij.execution.ExecutionException;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.TestDialog;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
@@ -30,10 +32,13 @@ import org.junit.runner.Description;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.util.*;
 
 /**
  * @author traff
+ *
+*  All inhertors must be in {@link com.jetbrains.env.}.*
  */
 public abstract class PyEnvTestCase {
   private static final Logger LOG = Logger.getInstance(PyEnvTestCase.class.getName());
@@ -135,7 +140,7 @@ public abstract class PyEnvTestCase {
   }
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     if (myRequiredTags != null) { // Ensure all tags exist between available interpreters
       Assume.assumeThat(
         "Can't find some tags between all available interpreter, test (all methods) will be skipped",
@@ -158,13 +163,9 @@ public abstract class PyEnvTestCase {
     return allAvailableTags;
   }
 
-  protected void invokeTestRunnable(@NotNull final Runnable runnable) throws Exception {
+  protected void invokeTestRunnable(@NotNull final Runnable runnable) {
     if (runInWriteAction()) {
-      UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-        public void run() {
-          ApplicationManager.getApplication().runWriteAction(runnable);
-        }
-      });
+      UIUtil.invokeAndWaitIfNeeded((Runnable)() -> ApplicationManager.getApplication().runWriteAction(runnable));
     }
     else {
       runnable.run();
@@ -189,11 +190,7 @@ public abstract class PyEnvTestCase {
   }
 
   public void runTest(@NotNull PyTestTask testTask, @NotNull String testName) {
-    if (notEnvConfiguration()) {
-      Assert.fail("Running under teamcity but not by Env configuration. Skipping.");
-      return;
-    }
-
+    Assume.assumeFalse("Running under teamcity but not by Env configuration. Skipping.", notEnvConfiguration());
     if (UsefulTestCase.IS_UNDER_TEAMCITY && IS_ENV_CONFIGURATION) {
       checkStaging();
     }
@@ -236,16 +233,29 @@ public abstract class PyEnvTestCase {
     if (RUN_LOCAL) {
       PyEnvTaskRunner taskRunner = new PyEnvTaskRunner(roots);
 
-      final EnvTestTagsRequired tagsRequiredAnnotation = getClass().getAnnotation(EnvTestTagsRequired.class);
-      final String[] requiredTags;
-      if (tagsRequiredAnnotation != null) {
-        requiredTags = tagsRequiredAnnotation.tags();
+      final EnvTestTagsRequired classAnnotation = getClass().getAnnotation(EnvTestTagsRequired.class);
+      EnvTestTagsRequired methodAnnotation = null;
+      try {
+        final Method method = getClass().getMethod(myTestName.getMethodName());
+        methodAnnotation = method.getAnnotation(EnvTestTagsRequired.class);
       }
-      else {
-        requiredTags = ArrayUtil.EMPTY_STRING_ARRAY;
+      catch (final NoSuchMethodException e) {
+        throw new AssertionError("No such method", e);
       }
+      final String[] classTags = getTags(classAnnotation);
+      final String[] methodTags = getTags(methodAnnotation);
 
-      taskRunner.runTask(testTask, testName, requiredTags);
+      taskRunner.runTask(testTask, testName, ArrayUtil.mergeArrays(methodTags, classTags));
+    }
+  }
+
+  @NotNull
+  private static String[] getTags(@Nullable final EnvTestTagsRequired tagsRequiredAnnotation) {
+    if (tagsRequiredAnnotation != null) {
+      return tagsRequiredAnnotation.tags();
+    }
+    else {
+      return ArrayUtil.EMPTY_STRING_ARRAY;
     }
   }
 
@@ -337,13 +347,20 @@ public abstract class PyEnvTestCase {
     myLogger = null;
   }
 
+  private Disposable myDisposable = Disposer.newDisposable();
+
+  public Disposable getTestRootDisposable() {
+    return myDisposable;
+  }
+
   /**
    * Always call parrent when overwrite
    */
   @After
-  public void tearDown() throws Exception {
+  public void tearDown() {
     // We can stop message capturing even if it was not started as cleanup process.
     stopMessageCapture();
+    Disposer.dispose(myDisposable);
   }
 
   /**

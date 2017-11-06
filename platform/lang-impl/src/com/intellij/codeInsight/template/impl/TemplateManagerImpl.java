@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,6 +47,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentMap;
 
 public class TemplateManagerImpl extends TemplateManager implements Disposable {
   private static final TemplateContextType[] ourContextTypes = Extensions.getExtensions(TemplateContextType.EP_NAME);
@@ -91,12 +92,7 @@ public class TemplateManagerImpl extends TemplateManager implements Disposable {
   public static void setTemplateTesting(Project project, Disposable parentDisposable) {
     final TemplateManagerImpl instance = (TemplateManagerImpl)getInstance(project);
     instance.myTemplateTesting = true;
-    Disposer.register(parentDisposable, new Disposable() {
-      @Override
-      public void dispose() {
-        instance.myTemplateTesting = false;
-      }
-    });
+    Disposer.register(parentDisposable, () -> instance.myTemplateTesting = false);
   }
 
   private static void disposeState(@NotNull TemplateState state) {
@@ -305,7 +301,8 @@ public class TemplateManagerImpl extends TemplateManager implements Disposable {
   public static boolean isApplicable(@NotNull CustomLiveTemplate customLiveTemplate,
                                      @NotNull Editor editor,
                                      @NotNull PsiFile file, boolean wrapping) {
-    return customLiveTemplate.isApplicable(file, CustomTemplateCallback.getOffset(editor), wrapping);
+    CustomTemplateCallback callback = new CustomTemplateCallback(editor, file);
+    return customLiveTemplate.isApplicable(callback, callback.getOffset(), wrapping);
   }
 
   private static int getArgumentOffset(int caretOffset, String argument, CharSequence text) {
@@ -389,11 +386,11 @@ public class TemplateManagerImpl extends TemplateManager implements Disposable {
     };
   }
 
-  public static List<TemplateImpl> findMatchingTemplates(CharSequence text,
-                                                         int caretOffset,
-                                                         @Nullable Character shortcutChar,
-                                                         TemplateSettings settings,
-                                                         boolean hasArgument) {
+  private static List<TemplateImpl> findMatchingTemplates(CharSequence text,
+                                                          int caretOffset,
+                                                          @Nullable Character shortcutChar,
+                                                          TemplateSettings settings,
+                                                          boolean hasArgument) {
     List<TemplateImpl> candidates = Collections.emptyList();
     for (int i = settings.getMaxKeyLength(); i >= 1; i--) {
       int wordStart = caretOffset - i;
@@ -614,9 +611,9 @@ public class TemplateManagerImpl extends TemplateManager implements Disposable {
     ProperTextRange editRange = ProperTextRange.create(startOffset, endOffset);
     assertRangeWithinDocument(editRange, file.getViewProvider().getDocument());
 
-    ConcurrentFactoryMap<Pair<ProperTextRange, String>, OffsetsInFile> map = CachedValuesManager.getCachedValue(file, () ->
+    ConcurrentMap<Pair<ProperTextRange, String>, OffsetsInFile> map = CachedValuesManager.getCachedValue(file, () ->
       CachedValueProvider.Result.create(
-        ConcurrentFactoryMap.createConcurrentMap(
+        ConcurrentFactoryMap.createMap(
           key -> copyWithDummyIdentifier(new OffsetsInFile(file), key.first.getStartOffset(), key.first.getEndOffset(), key.second)),
         file, file.getViewProvider().getDocument()));
     return map.get(Pair.create(editRange, replacement));
@@ -634,9 +631,14 @@ public class TemplateManagerImpl extends TemplateManager implements Disposable {
 
     Document document = offsetMap.getFile().getViewProvider().getDocument();
     assert document != null;
-    if (replacement.isEmpty() && startOffset == endOffset &&
-        PsiDocumentManager.getInstance(offsetMap.getFile().getProject()).isCommitted(document)) {
-      return offsetMap;
+    if (replacement.isEmpty() && startOffset == endOffset) {
+      PsiDocumentManager pdm = PsiDocumentManager.getInstance(offsetMap.getFile().getProject());
+      if (ApplicationManager.getApplication().isDispatchThread()) {
+        pdm.commitDocument(document);
+      }
+      if (pdm.isCommitted(document)) {
+        return offsetMap;
+      }
     }
 
     OffsetsInFile hostOffsets = offsetMap.toTopLevelFile();

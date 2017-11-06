@@ -15,6 +15,7 @@
  */
 package com.intellij.codeInsight.hints;
 
+import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.lang.Language;
 import com.intellij.psi.PsiElement;
 import com.intellij.util.containers.ContainerUtil;
@@ -29,7 +30,7 @@ import java.util.Set;
 public interface InlayParameterHintsProvider {
 
   /**
-   * Hints for params to be shown
+   * Hints for params to be shown, hints offsets should be located within elements text range
    */
   @NotNull
   List<InlayInfo> getParameterHints(PsiElement element);
@@ -75,4 +76,23 @@ public interface InlayParameterHintsProvider {
     return true;
   }
 
+  /**
+   * Text explaining black list patterns
+   */
+  default String getBlacklistExplanationHTML() {
+      return CodeInsightBundle.message("inlay.hints.blacklist.pattern.explanation");
+  }
+
+  /**
+   * Customise hints presentation
+   */
+  default String getInlayPresentation(@NotNull String inlayText) {
+    return inlayText + ":"; 
+  }
+
+  /**
+   * Whether provider should be queried for hints ({@link #getParameterHints(PsiElement)}) even if showing hints is disabled globally
+   * (EditorSettingsExternalizable.isShowParameterNameHints()).
+   */
+  default boolean canShowHintsWhenDisabled() { return false; }
 }

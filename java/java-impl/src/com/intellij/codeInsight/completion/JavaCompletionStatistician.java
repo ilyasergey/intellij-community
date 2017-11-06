@@ -22,6 +22,8 @@ import com.intellij.patterns.ElementPattern;
 import com.intellij.psi.*;
 import com.intellij.psi.statistics.JavaStatisticsManager;
 import com.intellij.psi.statistics.StatisticsInfo;
+import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import org.jetbrains.annotations.Nullable;
 
 import static com.intellij.patterns.PsiJavaPatterns.psiElement;
@@ -36,7 +38,9 @@ public class JavaCompletionStatistician extends CompletionStatistician{
   public StatisticsInfo serialize(final LookupElement element, final CompletionLocation location) {
     Object o = element.getObject();
 
-    if (o instanceof PsiLocalVariable || o instanceof PsiParameter || o instanceof PsiThisExpression || o instanceof PsiKeyword) {
+    if (o instanceof PsiLocalVariable || o instanceof PsiParameter || 
+        o instanceof PsiThisExpression || o instanceof PsiKeyword || 
+        element.getUserData(JavaCompletionUtil.SUPER_METHOD_PARAMETERS) != null) {
       return StatisticsInfo.EMPTY;
     }
 
@@ -50,10 +54,21 @@ public class JavaCompletionStatistician extends CompletionStatistician{
     }
 
     ExpectedTypeInfo firstInfo = getExpectedTypeInfo(location);
+    if (firstInfo != null && isInEnumAnnotationParameter(position, firstInfo)) {
+      return StatisticsInfo.EMPTY;
+    }
+    
     if (o instanceof PsiClass) {
       return getClassInfo((PsiClass)o, position, firstInfo);
     }
     return getFieldOrMethodInfo((PsiMember)o, element, firstInfo);
+  }
+
+  private static boolean isInEnumAnnotationParameter(PsiElement position, ExpectedTypeInfo firstInfo) {
+    if (PsiTreeUtil.getParentOfType(position, PsiNameValuePair.class) == null) return false;
+    
+    PsiClass expectedClass = PsiUtil.resolveClassInType(firstInfo.getType());
+    return expectedClass != null && expectedClass.isEnum();
   }
 
   @Nullable

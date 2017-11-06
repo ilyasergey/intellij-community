@@ -21,17 +21,12 @@ import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
-import com.intellij.openapi.vcs.AbstractVcs;
-import com.intellij.openapi.vcs.ProjectLevelVcsManager;
-import com.intellij.openapi.vcs.VcsKey;
-import com.intellij.openapi.vcs.VcsNotifier;
+import com.intellij.openapi.vcs.*;
+import com.intellij.openapi.vcs.actions.BackgroundTaskGroup;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vcs.changes.ChangeListManagerEx;
-import com.intellij.util.Consumer;
+import com.intellij.util.ThrowableConsumer;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.vcs.log.CommitId;
@@ -47,19 +42,17 @@ public class VcsCherryPickManager {
   @NotNull private final Project myProject;
   @NotNull private final ProjectLevelVcsManager myProjectLevelVcsManager;
   @NotNull private final Set<CommitId> myIdsInProgress = ContainerUtil.newConcurrentSet();
+  private final BackgroundTaskGroup myTaskQueue;
 
   public VcsCherryPickManager(@NotNull Project project, @NotNull ProjectLevelVcsManager projectLevelVcsManager) {
     myProject = project;
     myProjectLevelVcsManager = projectLevelVcsManager;
+    myTaskQueue = new BackgroundTaskGroup(project, "Cherry-picking");
   }
 
   public void cherryPick(@NotNull VcsLog log) {
-    log.requestSelectedDetails(new Consumer<List<VcsFullCommitDetails>>() {
-      @Override
-      public void consume(List<VcsFullCommitDetails> details) {
-        ProgressManager.getInstance().run(new CherryPickingTask(myProject, ContainerUtil.reverse(details)));
-      }
-    }, null);
+    log.requestSelectedDetails(
+      details -> myTaskQueue.runInBackground("Cherry-picking", new CherryPickingTask(ContainerUtil.reverse(details))));
   }
 
   public boolean isCherryPickAlreadyStartedFor(@NotNull List<CommitId> commits) {
@@ -81,20 +74,15 @@ public class VcsCherryPickManager {
 
   @Nullable
   public VcsCherryPicker getCherryPickerFor(@NotNull final VcsKey key) {
-    return ContainerUtil.find(Extensions.getExtensions(VcsCherryPicker.EXTENSION_POINT_NAME, myProject), new Condition<VcsCherryPicker>() {
-      @Override
-      public boolean value(VcsCherryPicker picker) {
-        return picker.getSupportedVcs().equals(key);
-      }
-    });
+    return ContainerUtil.find(Extensions.getExtensions(VcsCherryPicker.EXTENSION_POINT_NAME, myProject),
+                              picker -> picker.getSupportedVcs().equals(key));
   }
 
-  private class CherryPickingTask extends Task.Backgroundable {
+  private class CherryPickingTask implements ThrowableConsumer<ProgressIndicator, VcsException> {
     @NotNull private final List<VcsFullCommitDetails> myAllDetailsInReverseOrder;
     @NotNull private final ChangeListManagerEx myChangeListManager;
 
-    public CherryPickingTask(@NotNull Project project, @NotNull List<VcsFullCommitDetails> detailsInReverseOrder) {
-      super(project, "Cherry-Picking");
+    public CherryPickingTask(@NotNull List<VcsFullCommitDetails> detailsInReverseOrder) {
       myAllDetailsInReverseOrder = detailsInReverseOrder;
       myChangeListManager = (ChangeListManagerEx)ChangeListManager.getInstance(myProject);
       myChangeListManager.blockModalNotifications();
@@ -127,7 +115,7 @@ public class VcsCherryPickManager {
     }
 
     @Override
-    public void run(@NotNull ProgressIndicator indicator) {
+    public void consume(ProgressIndicator indicator) {
       try {
         boolean isOk = true;
         MultiMap<VcsCherryPicker, VcsFullCommitDetails> groupedCommits = createArrayMultiMap();
@@ -147,12 +135,10 @@ public class VcsCherryPickManager {
         }
       }
       finally {
-        ApplicationManager.getApplication().invokeLater(new Runnable() {
-          public void run() {
-            myChangeListManager.unblockModalNotifications();
-            for (VcsFullCommitDetails details : myAllDetailsInReverseOrder) {
-              myIdsInProgress.remove(new CommitId(details.getId(), details.getRoot()));
-            }
+        ApplicationManager.getApplication().invokeLater(() -> {
+          myChangeListManager.unblockModalNotifications();
+          for (VcsFullCommitDetails details : myAllDetailsInReverseOrder) {
+            myIdsInProgress.remove(new CommitId(details.getId(), details.getRoot()));
           }
         });
       }

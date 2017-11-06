@@ -15,10 +15,12 @@
  */
 package com.intellij.openapi.actionSystem.ex;
 
+import com.intellij.ide.DataManager;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.application.TransactionGuard;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
@@ -34,11 +36,16 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.awt.*;
+import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.InputEvent;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class ActionUtil {
+  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.actionSystem.ex.ActionUtil");
   @NonNls private static final String WAS_ENABLED_BEFORE_DUMB = "WAS_ENABLED_BEFORE_DUMB";
   @NonNls public static final String WOULD_BE_ENABLED_IF_NOT_DUMB_MODE = "WOULD_BE_ENABLED_IF_NOT_DUMB_MODE";
   @NonNls private static final String WOULD_BE_VISIBLE_IF_NOT_DUMB_MODE = "WOULD_BE_VISIBLE_IF_NOT_DUMB_MODE";
@@ -63,6 +70,10 @@ public class ActionUtil {
 
     if (project == null) {
       return;
+    }
+
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Showing dumb mode warning for " + Arrays.asList(events), new Throwable());
     }
 
     DumbService.getInstance(project).showDumbModeNotification(getActionUnavailableMessage(actionNames));
@@ -113,8 +124,9 @@ public class ActionUtil {
 
     final boolean notAllowed = dumbMode && !action.isDumbAware() || (Registry.is("actionSystem.honor.modal.context") && isInModalContext && !action.isEnabledInModalContext());
 
+    String description = presentation.getText() + " action update (" + action.getClass() + ")";
     if (insidePerformDumbAwareUpdate++ == 0) {
-      ActionPauses.STAT.started();
+      ActionPauses.STAT.started(description);
     }
     try {
       if (beforeActionPerformed) {
@@ -134,7 +146,7 @@ public class ActionUtil {
     }
     finally {
       if (--insidePerformDumbAwareUpdate == 0) {
-        ActionPauses.STAT.finished(presentation.getText() + " action update (" + action.getClass() + ")");
+        ActionPauses.STAT.finished(description);
       }
       if (notAllowed) {
         if (wasEnabledBefore == null) {
@@ -143,7 +155,7 @@ public class ActionUtil {
         presentation.setEnabled(false);
       }
     }
-    
+
     return false;
   }
 
@@ -207,7 +219,8 @@ public class ActionUtil {
         try {
           action.actionPerformed(e);
         }
-        catch (IndexNotReadyException e1) {
+        catch (IndexNotReadyException ex) {
+          LOG.info(ex);
           showDumbModeWarning(e);
         }
       }
@@ -301,5 +314,36 @@ public class ActionUtil {
       a1.copyShortcutFrom(a2);
     }
     return a1;
+  }
+
+  public static void invokeAction(@NotNull AnAction action, @Nullable InputEvent inputEvent, @NotNull Component component, @NotNull String place, @Nullable Runnable onDone) {
+    Presentation presentation = action.getTemplatePresentation().clone();
+    AnActionEvent event = new AnActionEvent(inputEvent, DataManager.getInstance().getDataContext(component),
+                                            place,
+                                            presentation,
+                                            ActionManager.getInstance(),
+                                            0);
+    performDumbAwareUpdate(false, action, event, true);
+    if (event.getPresentation().isEnabled() && event.getPresentation().isVisible()) {
+      action.actionPerformed(event);
+      if (onDone != null) {
+        onDone.run();
+      }
+    }
+  }
+
+  @NotNull
+  public static ActionListener createActionListener(@NotNull String actionId, @NotNull Component component, @NotNull String place) {
+    return new ActionListener() {
+      @Override
+      public void actionPerformed(ActionEvent e) {
+        AnAction action = ActionManager.getInstance().getAction(actionId);
+        if (action == null) {
+          LOG.warn("Can not find action by id " + actionId);
+          return;
+        }
+        invokeAction(action, null, component, place, null);
+      }
+    };
   }
 }

@@ -18,6 +18,7 @@ package com.intellij.util.containers;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Conditions;
 import com.intellij.util.Function;
+import com.intellij.util.Functions;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,22 +30,27 @@ import static com.intellij.openapi.util.Conditions.not;
 
 public abstract class FilteredTraverserBase<T, Self extends FilteredTraverserBase<T, Self>> implements Iterable<T> {
 
-  protected final Meta<T> meta;
-  protected final Function<T, ? extends Iterable<? extends T>> tree;
+  private final Meta<T> myMeta;
+  private final Function<T, ? extends Iterable<? extends T>> myTree;
 
   protected FilteredTraverserBase(@Nullable Meta<T> meta, @NotNull Function<T, ? extends Iterable<? extends T>> tree) {
-    this.tree = tree;
-    this.meta = meta == null ? Meta.<T>empty() : meta;
+    this.myTree = tree;
+    this.myMeta = meta == null ? Meta.<T>empty() : meta;
+  }
+
+  @NotNull
+  public Function<T, ? extends Iterable<? extends T>> getTree() {
+    return myTree;
   }
 
   @NotNull
   public final T getRoot() {
-    return meta.roots.iterator().next();
+    return myMeta.roots.iterator().next();
   }
 
   @NotNull
   public final Iterable<? extends T> getRoots() {
-    return meta.roots;
+    return myMeta.roots;
   }
 
   @Override
@@ -63,12 +69,12 @@ public abstract class FilteredTraverserBase<T, Self extends FilteredTraverserBas
         return children(t);
       }
     };
-    return traversal.traversal(getRoots(), adjusted).filter(meta.filter.AND);
+    return myMeta.interceptor.fun(traversal).traversal(getRoots(), adjusted).filter(myMeta.filter.AND);
   }
 
   @NotNull
   public final JBIterable<T> traverse() {
-    return traverse(meta.traversal);
+    return traverse(myMeta.traversal);
   }
 
   @NotNull
@@ -98,22 +104,22 @@ public abstract class FilteredTraverserBase<T, Self extends FilteredTraverserBas
    */
   @NotNull
   public final Self reset() {
-    return newInstance(meta.reset());
+    return newInstance(myMeta.reset());
   }
 
   @NotNull
   public final Self withRoot(@Nullable T root) {
-    return newInstance(meta.withRoots(ContainerUtil.createMaybeSingletonList(root)));
+    return newInstance(myMeta.withRoots(ContainerUtil.createMaybeSingletonList(root)));
   }
 
   @NotNull
   public final Self withRoots(@NotNull Iterable<? extends T> roots) {
-    return newInstance(meta.withRoots(roots));
+    return newInstance(myMeta.withRoots(roots));
   }
 
   @NotNull
   public final Self withTraversal(TreeTraversal type) {
-    return newInstance(meta.withTraversal(type));
+    return newInstance(myMeta.withTraversal(type));
   }
 
   /**
@@ -122,7 +128,7 @@ public abstract class FilteredTraverserBase<T, Self extends FilteredTraverserBas
    */
   @NotNull
   public final Self expand(@NotNull Condition<? super T> c) {
-    return newInstance(meta.expand(c));
+    return newInstance(myMeta.expand(c));
   }
 
   /**
@@ -131,22 +137,22 @@ public abstract class FilteredTraverserBase<T, Self extends FilteredTraverserBas
    */
   @NotNull
   public final Self regard(@NotNull Condition<? super T> c) {
-    return newInstance(meta.regard(c));
+    return newInstance(myMeta.regard(c));
   }
 
   @NotNull
   public final Self expandAndFilter(Condition<? super T> c) {
-    return newInstance(meta.expand(c).filter(c));
+    return newInstance(myMeta.expand(c).filter(c));
   }
 
   @NotNull
   public final Self expandAndSkip(Condition<? super T> c) {
-    return newInstance(meta.expand(c).filter(not(c)));
+    return newInstance(myMeta.expand(c).filter(not(c)));
   }
 
   @NotNull
   public final Self filter(@NotNull Condition<? super T> c) {
-    return newInstance(meta.filter(c));
+    return newInstance(myMeta.filter(c));
   }
 
   @NotNull
@@ -155,47 +161,84 @@ public abstract class FilteredTraverserBase<T, Self extends FilteredTraverserBas
   }
 
   /**
-   * Converts the configured traversal to skip already visited nodes.
+   * Configures the traverser to skip already visited nodes.
+   * <p/>
+   * This property is not reset by {@code reset()} call.
+   * @see FilteredTraverserBase#unique(Function)
    * @see TreeTraversal#unique()
    */
   @NotNull
   public final Self unique() {
-    return withTraversal(meta.traversal.unique());
+    return unique(Functions.identity());
   }
 
   /**
-   * Converts the configured traversal to skip already visited nodes.
+   * Configures the traverser to skip already visited nodes.
+   * <p/>
+   * This property is not reset by {@code reset()} call.
    * @see TreeTraversal#unique(Function)
    */
   @NotNull
-  public final Self unique(@NotNull Function<T, Object> identity) {
-    return withTraversal(meta.traversal.unique(identity));
+  public final Self unique(@NotNull final Function<? super T, Object> identity) {
+    return interceptTraversal(new Function<TreeTraversal, TreeTraversal>() {
+      @Override
+      public TreeTraversal fun(TreeTraversal traversal) {
+        return traversal.unique(identity);
+      }
+    });
   }
 
+  /**
+   * Configures the traverser to expand and return the nodes within the range only.
+   * <p/>
+   * This property is not reset by {@code reset()} call.
+   * @see TreeTraversal#onRange(Condition)
+   */
   @NotNull
-  public Self onRange(@NotNull Condition<? super T> rangeCondition) {
-    return withTraversal(meta.traversal.onRange(rangeCondition));
+  public Self onRange(@NotNull final Condition<? super T> rangeCondition) {
+    return interceptTraversal(new Function<TreeTraversal, TreeTraversal>() {
+      @Override
+      public TreeTraversal fun(TreeTraversal traversal) {
+        return traversal.onRange(rangeCondition);
+      }
+    });
   }
 
   /**
    * Excludes the nodes by the specified condition from any traversal completely.
+   * <p/>
+   * This property is not reset by {@code reset()} call.
    * @see FilteredTraverserBase#expand(Condition)
    * @see FilteredTraverserBase#filter(Condition)
    * @see FilteredTraverserBase#reset()
    */
   @NotNull
   public final Self forceIgnore(@NotNull Condition<? super T> c) {
-    return newInstance(meta.forceIgnore(c));
+    return newInstance(myMeta.forceIgnore(c));
   }
 
   /**
    * Excludes the nodes by the specified condition while keeping their edges.
+   * <p/>
+   * This property is not reset by {@code reset()} call.
    * @see FilteredTraverserBase#regard(Condition)
    * @see FilteredTraverserBase#reset()
    */
   @NotNull
   public final Self forceDisregard(@NotNull Condition<? super T> c) {
-    return newInstance(meta.forceDisregard(c));
+    return newInstance(myMeta.forceDisregard(c));
+  }
+
+  /**
+   * Intercepts and alters traversal just before the walking.
+   * <p/>
+   * This property is not reset by {@code reset()} call.
+   * @see FilteredTraverserBase#unique()
+   * @see FilteredTraverserBase#onRange(Condition)
+   */
+  @NotNull
+  public final Self interceptTraversal(@NotNull Function<TreeTraversal, TreeTraversal> transform) {
+    return newInstance(myMeta.interceptTraversal(transform));
   }
 
   /**
@@ -207,17 +250,17 @@ public abstract class FilteredTraverserBase<T, Self extends FilteredTraverserBas
     if (node == null || isAlwaysLeaf(node)) {
       return JBIterable.empty();
     }
-    else if (meta.regard.next == null && meta.forceDisregard.next == null) {
-      return JBIterable.from(tree.fun(node)).filter(not(meta.forceIgnore.OR));
+    else if (myMeta.regard.next == null && myMeta.forceDisregard.next == null) {
+      return JBIterable.from(myTree.fun(node)).filter(not(myMeta.forceIgnore.OR));
     }
     else {
       // traverse subtree to select accepted children
-      return TreeTraversal.GUIDED_TRAVERSAL(meta.createChildrenGuide(node)).traversal(node, tree);
+      return TreeTraversal.GUIDED_TRAVERSAL(myMeta.createChildrenGuide(node)).traversal(node, myTree);
     }
   }
 
   protected boolean isAlwaysLeaf(@NotNull T node) {
-    return !meta.expand.valueAnd(node);
+    return !myMeta.expand.valueAnd(node);
   }
 
   @NotNull
@@ -233,11 +276,11 @@ public abstract class FilteredTraverserBase<T, Self extends FilteredTraverserBas
   @Override
   public String toString() {
     return getClass().getSimpleName() + "{" +
-           "traversal=" + meta.traversal +
+           "traversal=" + myMeta.traversal +
            '}';
   }
 
-  public abstract static class EdgeFilter<T> extends JBIterable.StatefulFilter<T> {
+  public abstract static class EdgeFilter<T> extends JBIterable.SCond<T> {
 
     protected T edgeSource;
 
@@ -255,13 +298,16 @@ public abstract class FilteredTraverserBase<T, Self extends FilteredTraverserBas
     final Cond<T> forceIgnore;
     final Cond<T> forceDisregard;
 
+    final Function<TreeTraversal, TreeTraversal> interceptor;
+
     public Meta(@NotNull Iterable<? extends T> roots,
                 @NotNull TreeTraversal traversal,
                 @NotNull Cond<T> expand,
                 @NotNull Cond<T> regard,
                 @NotNull Cond<T> filter,
                 @NotNull Cond<T> forceIgnore,
-                @NotNull Cond<T> forceDisregard) {
+                @NotNull Cond<T> forceDisregard,
+                @NotNull Function<TreeTraversal, TreeTraversal> interceptor) {
       this.roots = roots;
       this.traversal = traversal;
       this.expand = expand;
@@ -269,38 +315,47 @@ public abstract class FilteredTraverserBase<T, Self extends FilteredTraverserBas
       this.filter = filter;
       this.forceIgnore = forceIgnore;
       this.forceDisregard = forceDisregard;
+      this.interceptor = interceptor;
     }
 
     public Meta<T> reset() {
-      return new Meta<T>(roots, TreeTraversal.PRE_ORDER_DFS, Cond.TRUE, Cond.TRUE, Cond.TRUE, forceIgnore, forceDisregard);
+      Meta<T> e = empty();
+      return new Meta<T>(roots, e.traversal, e.expand, e.regard, e.filter, forceIgnore, forceDisregard, e.interceptor);
     }
 
     public Meta<T> withRoots(@NotNull Iterable<? extends T> roots) {
-      return new Meta<T>(roots, traversal, expand, regard, filter, forceIgnore, forceDisregard);
+      return new Meta<T>(roots, traversal, expand, regard, filter, forceIgnore, forceDisregard, interceptor);
     }
 
     public Meta<T> withTraversal(TreeTraversal traversal) {
-      return new Meta<T>(roots, traversal, expand, regard, filter, forceIgnore, forceDisregard);
+      return new Meta<T>(roots, traversal, expand, regard, filter, forceIgnore, forceDisregard, interceptor);
     }
 
     public Meta<T> expand(@NotNull Condition<? super T> c) {
-      return new Meta<T>(roots, traversal, expand.append(c), regard, this.filter, forceIgnore, forceDisregard);
+      return new Meta<T>(roots, traversal, expand.append(c), regard, this.filter, forceIgnore, forceDisregard, interceptor);
     }
 
     public Meta<T> regard(@NotNull Condition<? super T> c) {
-      return new Meta<T>(roots, traversal, expand, regard.append(c), this.filter, forceIgnore, forceDisregard);
+      return new Meta<T>(roots, traversal, expand, regard.append(c), this.filter, forceIgnore, forceDisregard, interceptor);
     }
 
     public Meta<T> filter(@NotNull Condition<? super T> c) {
-      return new Meta<T>(roots, traversal, expand, regard, this.filter.append(c), forceIgnore, forceDisregard);
+      return new Meta<T>(roots, traversal, expand, regard, this.filter.append(c), forceIgnore, forceDisregard, interceptor);
     }
 
     public Meta<T> forceIgnore(Condition<? super T> c) {
-      return new Meta<T>(roots, traversal, expand, regard, this.filter, forceIgnore.append(c), forceDisregard);
+      return new Meta<T>(roots, traversal, expand, regard, this.filter, forceIgnore.append(c), forceDisregard, interceptor);
     }
 
     public Meta<T> forceDisregard(Condition<? super T> c) {
-      return new Meta<T>(roots, traversal, expand, regard, this.filter, forceIgnore, forceDisregard.append(c));
+      return new Meta<T>(roots, traversal, expand, regard, this.filter, forceIgnore, forceDisregard.append(c), interceptor);
+    }
+
+    public Meta<T> interceptTraversal(Function<TreeTraversal, TreeTraversal> transform) {
+      if (transform == Function.ID) return this;
+      Function<TreeTraversal, TreeTraversal> newTransform = this.interceptor == Function.ID ? transform :
+                                                            Functions.compose(this.interceptor, transform);
+      return new Meta<T>(roots, traversal, expand, regard, this.filter, forceIgnore, forceDisregard, newTransform);
     }
 
     TreeTraversal.GuidedIt.Guide<T> createChildrenGuide(final T parent) {
@@ -352,7 +407,7 @@ public abstract class FilteredTraverserBase<T, Self extends FilteredTraverserBas
     private static final Meta<?> EMPTY = new Meta<Object>(
       JBIterable.empty(), TreeTraversal.PRE_ORDER_DFS,
       Cond.TRUE, Cond.TRUE, Cond.TRUE,
-      Cond.FALSE, Cond.FALSE);
+      Cond.FALSE, Cond.FALSE, Functions.<TreeTraversal>id());
 
     public static <T> Meta<T> empty() {
       return (Meta<T>)EMPTY;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,34 +30,42 @@ public class PyNamedParameterStubImpl extends StubBase<PyNamedParameter> impleme
   private final String myName;
   private final boolean myPositionalContainer;
   private final boolean myKeywordContainer;
-  private final boolean myHasDefaultValue;
   private final String myTypeCommentAnnotation;
+  private final String myAnnotation;
+  @Nullable
+  private final String myDefaultValueText;
 
   public PyNamedParameterStubImpl(String name,
                                   boolean isPositionalContainer,
                                   boolean isKeywordContainer,
-                                  boolean hasDefaultValue,
+                                  @Nullable String defaultValueText,
                                   @Nullable String typeCommentAnnotation,
+                                  @Nullable String annotation,
                                   StubElement parent,
                                   IStubElementType stubElementType) {
     super(parent, stubElementType);
     myName = name;
     myPositionalContainer = isPositionalContainer;
     myKeywordContainer = isKeywordContainer;
-    myHasDefaultValue = hasDefaultValue;
     myTypeCommentAnnotation = typeCommentAnnotation;
+    myAnnotation = annotation;
+    myDefaultValueText = defaultValueText;
   }
 
+  @Override
   public boolean isPositionalContainer() {
     return myPositionalContainer;
   }
 
+  @Override
   public boolean isKeywordContainer() {
     return myKeywordContainer;
   }
 
-  public boolean hasDefaultValue() {
-    return myHasDefaultValue;
+  @Nullable
+  @Override
+  public String getDefaultValueText() {
+    return myDefaultValueText;
   }
 
   @Nullable
@@ -65,7 +73,14 @@ public class PyNamedParameterStubImpl extends StubBase<PyNamedParameter> impleme
   public String getTypeComment() {
     return myTypeCommentAnnotation;
   }
-  
+
+  @Nullable
+  @Override
+  public String getAnnotation() {
+    return myAnnotation;
+  }
+
+  @Override
   public String getName() {
     return myName;
   }

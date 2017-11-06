@@ -19,6 +19,7 @@ import com.intellij.codeInsight.CodeInsightUtil;
 import com.intellij.codeInsight.ExpectedTypeInfo;
 import com.intellij.codeInsight.ExpectedTypesProvider;
 import com.intellij.codeInsight.ImportFilter;
+import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiUtil;
@@ -30,15 +31,31 @@ import org.jetbrains.annotations.NotNull;
 import java.util.*;
 
 abstract class StaticMembersProcessor<T extends PsiMember & PsiDocCommentOwner> implements Processor<T> {
+  public enum SearchMode {
+    MAX_2_MEMBERS(2),
+    MAX_100_MEMBERS(100);
+
+    private final int count;
+    SearchMode(int count) {
+      this.count = count;
+    }
+  }
+
   private final MultiMap<PsiClass, T> mySuggestions = new LinkedMultiMap<>();
 
   private final Map<PsiClass, Boolean> myPossibleClasses = new HashMap<>();
 
-  private final PsiElement myPlace;
+  @NotNull private final PsiElement myPlace;
+  @NotNull private final SearchMode mySearchMode;
+  private final boolean myShowMembersFromDefaultPackage;
   private PsiType myExpectedType;
 
-  protected StaticMembersProcessor(PsiElement place) {
+  protected StaticMembersProcessor(@NotNull PsiElement place,
+                                   boolean showMembersFromDefaultPackage,
+                                   @NotNull SearchMode searchMode) {
     myPlace = place;
+    mySearchMode = searchMode;
+    myShowMembersFromDefaultPackage = showMembersFromDefaultPackage && PsiUtil.isFromDefaultPackage(place);
     myExpectedType = PsiType.NULL;
   }
 
@@ -83,18 +100,24 @@ abstract class StaticMembersProcessor<T extends PsiMember & PsiDocCommentOwner> 
       if (qualifiedName != null && containingFile != null && !ImportFilter.shouldImport(containingFile, qualifiedName)) {
         return true;
       }
+
+      PsiModifierList modifierList = member.getModifierList();
+      if (modifierList != null && member instanceof PsiMethod &&
+          member.getLanguage().isKindOf(JavaLanguage.INSTANCE)
+          && !modifierList.hasExplicitModifier(PsiModifier.STATIC)) {
+        //methods in interfaces must have explicit static modifier or they are not static;
+        return true;
+      }
     }
-    PsiFile file = member.getContainingFile();
-    if (file instanceof PsiJavaFile
-        //do not show methods from default package
-        && !((PsiJavaFile)file).getPackageName().isEmpty()) {
+
+    if (myShowMembersFromDefaultPackage || !PsiUtil.isFromDefaultPackage(member)) {
       mySuggestions.putValue(containingClass, member);
     }
     return processCondition();
   }
 
   private boolean processCondition() {
-    return mySuggestions.size() < 100;
+    return mySuggestions.size() < mySearchMode.count;
   }
 
   private void registerMember(PsiClass containingClass,

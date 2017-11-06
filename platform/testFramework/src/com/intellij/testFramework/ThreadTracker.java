@@ -38,6 +38,7 @@ import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Set;
+import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -151,6 +152,10 @@ public class ThreadTracker {
           continue;
         }
 
+        if (isIdleCommonPoolThread(thread, stackTrace)) {
+          continue;
+        }
+
         @SuppressWarnings("NonConstantStringShouldBeStringBuffer")
         String trace = "Thread leaked: " + thread + "; " + thread.getState() + " (" + thread.isAlive() + ")\n--- its stacktrace:\n";
         for (final StackTraceElement stackTraceElement : stackTrace) {
@@ -171,7 +176,7 @@ public class ThreadTracker {
   }
 
   // true if somebody started new thread via "executeInPooledThread()" and then the thread is waiting for next task
-  private static boolean isIdleApplicationPoolThread(Thread thread, StackTraceElement[] stackTrace) {
+  private static boolean isIdleApplicationPoolThread(@NotNull Thread thread, @NotNull StackTraceElement[] stackTrace) {
     if (!isWellKnownOffender(thread)) return false;
     boolean insideTPEGetTask = Arrays.stream(stackTrace)
       .anyMatch(element -> element.getMethodName().equals("getTask")
@@ -180,7 +185,22 @@ public class ThreadTracker {
     return insideTPEGetTask;
   }
 
-  public static void awaitThreadTerminationWithParentParentGroup(@NotNull final String grandThreadGroup, int timeout, @NotNull TimeUnit unit) {
+  private static boolean isIdleCommonPoolThread(@NotNull Thread thread, @NotNull StackTraceElement[] stackTrace) {
+    if (!ForkJoinWorkerThread.class.isAssignableFrom(thread.getClass())) {
+      return false;
+    }
+    boolean insideAwaitWork = Arrays.stream(stackTrace)
+      .anyMatch(element -> element.getMethodName().equals("awaitWork")
+                           && element.getClassName().equals("java.util.concurrent.ForkJoinPool"));
+    return insideAwaitWork;
+  }
+
+  public static void awaitJDIThreadsTermination(int timeout, @NotNull TimeUnit unit) {
+    awaitThreadTerminationWithParentParentGroup("JDI main", timeout, unit);
+  }
+  private static void awaitThreadTerminationWithParentParentGroup(@NotNull final String grandThreadGroup,
+                                                                  int timeout,
+                                                                  @NotNull TimeUnit unit) {
     long start = System.currentTimeMillis();
     while (System.currentTimeMillis() < start + unit.toMillis(timeout)) {
       Thread jdiThread = ContainerUtil.find(getThreads(), thread -> {

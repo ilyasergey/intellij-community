@@ -15,7 +15,6 @@
  */
 package git4idea.commands;
 
-import com.intellij.openapi.util.registry.Registry;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -44,7 +43,7 @@ public class GitCommand {
   public static final GitCommand CONFIG = read("config");
   public static final GitCommand CHERRY = read("cherry");
   public static final GitCommand CHERRY_PICK = write("cherry-pick");
-  public static final GitCommand CLONE = write("clone");
+  public static final GitCommand CLONE = read("clone"); // write, but can't interfere with any other command => should be treated as read
   public static final GitCommand DIFF = read("diff");
   public static final GitCommand FETCH = read("fetch");  // fetch is a read-command, because it doesn't modify the index
   public static final GitCommand INIT = write("init");
@@ -60,12 +59,13 @@ public class GitCommand {
   public static final GitCommand REBASE = write("rebase");
   public static final GitCommand REMOTE = read("remote");
   public static final GitCommand RESET = write("reset");
+  public static final GitCommand REVERT = write("revert");
   public static final GitCommand REV_LIST = read("rev-list");
   public static final GitCommand REV_PARSE = read("rev-parse");
   public static final GitCommand RM = write("rm");
   public static final GitCommand SHOW = read("show");
   public static final GitCommand STASH = write("stash");
-  public static final GitCommand STATUS = Registry.is("git.status.write") ? write("status") : read("status");
+  public static final GitCommand STATUS = write("status");
   public static final GitCommand TAG = read("tag");
   public static final GitCommand UPDATE_INDEX = write("update-index");
 

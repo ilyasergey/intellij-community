@@ -37,8 +37,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import java.awt.*;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
+import java.awt.event.FocusEvent;
 
 public class ListWithFilter<T> extends JPanel implements DataProvider {
   private final JList<T> myList;
@@ -56,10 +55,18 @@ public class ListWithFilter<T> extends JPanel implements DataProvider {
   }
 
   public static <T> JComponent wrap(@NotNull JList<T> list, @NotNull JScrollPane scrollPane, @Nullable Function<T, String> namer) {
-    return new ListWithFilter<>(list, scrollPane, namer);
+    return wrap(list, scrollPane, namer, false);
   }
 
-  private ListWithFilter(@NotNull JList<T> list, @NotNull JScrollPane scrollPane, @Nullable Function<T, String> namer) {
+  public static <T> JComponent wrap(@NotNull JList<T> list, @NotNull JScrollPane scrollPane, @Nullable Function<T, String> namer, 
+                                    boolean highlightAllOccurrences) {
+    return new ListWithFilter<>(list, scrollPane, namer, highlightAllOccurrences);
+  }
+
+  private ListWithFilter(@NotNull JList<T> list,
+                         @NotNull JScrollPane scrollPane,
+                         @Nullable Function<T, String> namer,
+                         boolean highlightAllOccurrences) {
     super(new BorderLayout());
 
     if (list instanceof ComponentWithEmptyText) {
@@ -75,19 +82,12 @@ public class ListWithFilter<T> extends JPanel implements DataProvider {
     add(mySearchField, BorderLayout.NORTH);
     add(myScrollPane, BorderLayout.CENTER);
 
-    mySpeedSearch = new MySpeedSearch();
+    mySpeedSearch = new MySpeedSearch(highlightAllOccurrences);
     mySpeedSearch.setEnabled(namer != null);
 
-    myList.addKeyListener(new KeyAdapter() {
-      public void keyPressed(final KeyEvent e) {
-        if (e.getKeyCode() == KeyEvent.VK_A && (e.isControlDown() || e.isMetaDown())) {
-          return;
-        }
-        mySpeedSearch.process(e);
-      }
-    });
-    final int selectedIndex = myList.getSelectedIndex();
-    final int modelSize = myList.getModel().getSize();
+    myList.addKeyListener(mySpeedSearch);
+    int selectedIndex = myList.getSelectedIndex();
+    int modelSize = myList.getModel().getSize();
     myModel = new NameFilteringListModel<>(myList, namer, s -> mySpeedSearch.shouldBeShowing(s), mySpeedSearch);
     if (myModel.getSize() == modelSize) {
       myList.setSelectedIndex(selectedIndex);
@@ -95,6 +95,16 @@ public class ListWithFilter<T> extends JPanel implements DataProvider {
 
     setBackground(list.getBackground());
     //setFocusable(true);
+  }
+
+  @Override
+  protected void processFocusEvent(FocusEvent e) {
+    super.processFocusEvent(e);
+    if (e.getID() == FocusEvent.FOCUS_GAINED) {
+      IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
+        IdeFocusManager.getGlobalInstance().requestFocus(myList, true);
+      });
+    }
   }
 
   public boolean resetFilter() {
@@ -113,7 +123,8 @@ public class ListWithFilter<T> extends JPanel implements DataProvider {
     boolean searchFieldShown;
     boolean myInUpdate;
 
-    private MySpeedSearch() {
+    private MySpeedSearch(boolean highlightAllOccurrences) {
+      super(highlightAllOccurrences);
       // native mac "clear button" is not captured by SearchTextField.onFieldCleared
       mySearchField.addDocumentListener(new DocumentAdapter() {
         @Override

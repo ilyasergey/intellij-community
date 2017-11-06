@@ -39,13 +39,6 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Created by IntelliJ IDEA.
- * User: db
- * Date: 27.06.2003
- * Time: 22:48:08
- * To change this template use Options | File Templates.
- */
 public class SystemBuilder {
   private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.typeCook.deductive.builder.SystemBuilder");
 
@@ -923,15 +916,9 @@ public class SystemBuilder {
     ReductionSystem system = new ReductionSystem(myProject, victims, myTypes, myTypeVariableFactory, mySettings);
 
     for (final PsiElement element : victims) {
-      if (element instanceof PsiParameter && ((PsiParameter)element).getDeclarationScope() instanceof PsiMethod) {
-        if (!verifyMethod(element, victims, helper)) {
-          continue;
-        }
-      }
-      else if (element instanceof PsiMethod) {
-        if (!verifyMethod(element, victims, helper)) {
-          continue;
-        }
+      if (element instanceof PsiParameter && ((PsiParameter)element).getDeclarationScope() instanceof PsiMethod ||
+          element instanceof PsiMethod) {
+        verifyMethod(element, victims, helper);
       }
     }
 

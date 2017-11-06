@@ -90,14 +90,11 @@ public class CallCommand extends AbstractCommand {
         return ActionCallback.REJECTED;
       }
 
-      result.doWhenDone(new Consumer<String>() {
-        @Override
-        public void consume(String s) {
-          if (s != null) {
-            context.message(s, getLine());
-          }
-          cmdResult.setDone();
+      result.doWhenDone((Consumer<String>)s -> {
+        if (s != null) {
+          context.message(s, getLine());
         }
+        cmdResult.setDone();
       }).doWhenRejected(s -> {
         context.error(s, getLine());
         cmdResult.setRejected();
@@ -120,7 +117,6 @@ public class CallCommand extends AbstractCommand {
         return Pair.create(method, eachClass);
       }
       catch (NoSuchMethodException ignored) {
-        continue;
       }
     }
 

@@ -32,6 +32,8 @@ import java.io.File
 import java.io.IOException
 import java.net.URL
 import javax.swing.UIManager
+import java.nio.file.Files
+import java.nio.file.Paths
 
 object UpdateInstaller {
   private val patchesUrl: String
@@ -39,7 +41,10 @@ object UpdateInstaller {
 
   @JvmStatic
   @Throws(IOException::class)
-  fun installPlatformUpdate(patch: PatchInfo, toBuild: BuildNumber, forceHttps: Boolean, indicator: ProgressIndicator): Array<String> {
+  fun downloadPatchFile(patch: PatchInfo,
+                        toBuild: BuildNumber,
+                        forceHttps: Boolean,
+                        indicator: ProgressIndicator): File {
     indicator.text = IdeBundle.message("update.downloading.patch.progress")
 
     val product = ApplicationInfo.getInstance().build.productCode
@@ -52,9 +57,7 @@ object UpdateInstaller {
     val url = URL(URL(if (baseUrl.endsWith('/')) baseUrl else baseUrl + '/'), patchName)
     val patchFile = File(getTempDir(), "patch.jar")
     HttpRequests.request(url.toString()).gzip(false).forceHttps(forceHttps).saveToFile(patchFile, indicator)
-
-    indicator.text = IdeBundle.message("update.preparing.patch.progress")
-    return preparePatchCommand(patchFile)
+    return patchFile
   }
 
   @JvmStatic
@@ -105,7 +108,9 @@ object UpdateInstaller {
     if (tempDir.exists()) FileUtil.delete(tempDir)
   }
 
-  private fun preparePatchCommand(patchFile: File): Array<String> {
+  @JvmStatic
+  @Throws(IOException::class)
+  fun preparePatchCommand(patchFile: File): Array<String> {
     val log4j = findLib("log4j.jar")
     val jna = findLib("jna.jar")
     val jnaUtils = findLib("jna-platform.jar")
@@ -131,10 +136,12 @@ object UpdateInstaller {
 
     val args = arrayListOf<String>()
 
-    if (SystemInfo.isWindows) {
-      val launcher = File(PathManager.getBinPath(), "VistaLauncher.exe")
-      if (launcher.canExecute()) {
+    if (SystemInfo.isWindows && !Files.isWritable(Paths.get(PathManager.getHomePath()))) {
+      val launcher = PathManager.findBinFile("launcher.exe")
+      val elevator = PathManager.findBinFile("elevator.exe")  // "launcher" depends on "elevator"
+      if (launcher != null && elevator != null && launcher.canExecute() && elevator.canExecute()) {
         args += Restarter.createTempExecutable(launcher).path
+        Restarter.createTempExecutable(elevator)
       }
     }
 

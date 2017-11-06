@@ -64,7 +64,7 @@ import java.util.List;
  * @author ven
  */
 public class CoverageConfigurable extends SettingsEditor<RunConfigurationBase> {
-  private static final Logger LOG = Logger.getInstance("#" + CoverageConfigurable.class.getName());
+  private static final Logger LOG = Logger.getInstance(CoverageConfigurable.class);
 
   private final JreVersionDetector myVersionDetector = new JreVersionDetector();
   Project myProject;
@@ -86,7 +86,7 @@ public class CoverageConfigurable extends SettingsEditor<RunConfigurationBase> {
           if (aClass.getContainingClass() != null) return false;
           return true;
         }
-      });
+      }, null, true);
     }
 
     protected void addPatternFilter() {

@@ -31,13 +31,13 @@ import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.psi.*;
 import com.intellij.testFramework.PlatformTestUtil;
+import com.intellij.util.ui.UIUtil;
 
 import javax.swing.*;
-import java.io.IOException;
 
 @SuppressWarnings({"HardCodedStringLiteral"})
 public class NavigateFromSourceTest extends BaseProjectViewTestCase {
-  public void testShowClassMembers() throws Exception {
+  public void testShowClassMembers() {
     useStandardProviders();
     final PsiClass[] classes = JavaDirectoryService.getInstance().getClasses(getPackageDirectory());
     sortClassesByName(classes);
@@ -84,7 +84,7 @@ public class NavigateFromSourceTest extends BaseProjectViewTestCase {
     doTestMultipleSelection(pane, ((PsiJavaFile)containingFile).getClasses()[0]);
   }
 
-  public void testAutoscrollFromSourceOnOpening() throws Exception {
+  public void testAutoscrollFromSourceOnOpening() {
     final PsiClass[] classes = JavaDirectoryService.getInstance().getClasses(getPackageDirectory());
     PsiClass psiClass = classes[0];
 
@@ -99,6 +99,7 @@ public class NavigateFromSourceTest extends BaseProjectViewTestCase {
     new ProjectViewToolWindowFactory().createToolWindowContent(getProject(), toolWindow);
 
     projectView.changeView(ProjectViewPane.ID);
+    UIUtil.dispatchAllInvocationEvents();
 
     JComponent component = ((ProjectViewImpl)projectView).getComponent();
     DataContext context = DataManager.getInstance().getDataContext(component);
@@ -121,7 +122,7 @@ public class NavigateFromSourceTest extends BaseProjectViewTestCase {
   private static void changeClassTextAndTryToNavigate(final String newClassString,
                                                       PsiJavaFile psiFile,
                                                       final AbstractProjectViewPSIPane pane,
-                                                      final String expected) throws IOException, InterruptedException {
+                                                      final String expected) {
     PsiClass psiClass = psiFile.getClasses()[0];
     final VirtualFile virtualFile = psiClass.getContainingFile().getVirtualFile();
     final JTree tree = pane.getTree();

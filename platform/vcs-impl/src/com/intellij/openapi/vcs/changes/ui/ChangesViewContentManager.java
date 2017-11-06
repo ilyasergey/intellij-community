@@ -16,7 +16,6 @@
 
 package com.intellij.openapi.vcs.changes.ui;
 
-import com.intellij.lifecycle.PeriodicalTasksCloser;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.components.AbstractProjectComponent;
@@ -53,7 +52,7 @@ public class ChangesViewContentManager extends AbstractProjectComponent implemen
   private final ProjectLevelVcsManager myVcsManager;
 
   public static ChangesViewContentI getInstance(Project project) {
-    return PeriodicalTasksCloser.getInstance().safeGetComponent(project, ChangesViewContentI.class);
+    return project.getComponent(ChangesViewContentI.class);
   }
 
   private ContentManager myContentManager;
@@ -218,13 +217,11 @@ public class ChangesViewContentManager extends AbstractProjectComponent implemen
   private class MyVcsListener implements VcsListener {
     public void directoryMappingChanged() {
       myVcsChangeAlarm.cancelAllRequests();
-      myVcsChangeAlarm.addRequest(new Runnable() {
-        public void run() {
-          if (myProject.isDisposed()) return;
-          updateToolWindowAvailability();
-          if (myContentManager != null) {
-            updateExtensionTabs();
-          }
+      myVcsChangeAlarm.addRequest(() -> {
+        if (myProject.isDisposed()) return;
+        updateToolWindowAvailability();
+        if (myContentManager != null) {
+          updateExtensionTabs();
         }
       }, 100, ModalityState.NON_MODAL);
     }

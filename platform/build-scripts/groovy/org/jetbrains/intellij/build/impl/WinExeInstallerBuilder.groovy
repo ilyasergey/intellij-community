@@ -37,6 +37,28 @@ class WinExeInstallerBuilder {
     this.jreDirectoryPath = jreDirectoryPath
   }
 
+  private void generateInstallationConfigFileForSilentMode() {
+    if (customizer.silentInstallationConfig != null) {
+      if (new File(customizer.silentInstallationConfig).exists()) {
+        def extensionsList = customizer.fileAssociations
+        String associations = "; List of associations. To create an association change value to 1.\n"
+        if (! extensionsList.isEmpty()) {
+          associations += extensionsList.collect { "$it=0\n" }.join("")
+        } else {
+          associations = "; There are no associations for the product.\n"
+        }
+        buildContext.ant.copy(todir: "${buildContext.paths.artifacts}") {
+          fileset(file: customizer.silentInstallationConfig)
+          filterset(begintoken: "@@", endtoken: "@@") {
+            filter(token: "List of associations", value: associations)
+          }
+        }
+      }
+    } else {
+        buildContext.messages.warning("Silent config file for Windows installer won't be generated because it is not defined.")
+    }
+  }
+
   void buildInstaller(String winDistPath) {
     if (!SystemInfoRt.isWindows && !SystemInfoRt.isLinux) {
       buildContext.messages.warning("Windows installer can be built only under Windows or Linux")
@@ -62,6 +84,9 @@ class WinExeInstallerBuilder {
         exclude(name: "version*")
       }
     }
+
+    generateInstallationConfigFileForSilentMode()
+
     if (SystemInfoRt.isLinux) {
       File ideaNsiPath = new File(box, "nsiconf/idea.nsi")
       ideaNsiPath.text = BuildUtils.replaceAll(ideaNsiPath.text, ["\${IMAGES_LOCATION}\\": "\${IMAGES_LOCATION}/"], "")
@@ -98,14 +123,16 @@ class WinExeInstallerBuilder {
                         " \"${box}/nsiconf/idea.nsi\"")
     }
     else if (SystemInfoRt.isLinux) {
-      buildContext.ant.fixcrlf(file: "$communityHome/build/conf/install_nsis3.sh", eol: "unix")
+      String installScriptPath = "$box/install_nsis3.sh"
+      buildContext.ant.copy(file: "$communityHome/build/conf/install_nsis3.sh", tofile: installScriptPath)
+      buildContext.ant.fixcrlf(file: installScriptPath, eol: "unix")
       ant.exec(executable: "chmod") {
-        arg(line: " u+x \"${communityHome}/build/conf/install_nsis3.sh\"")
+        arg(line: " u+x \"$installScriptPath\"")
       }
-      ant.exec(command: "\"$communityHome/build/conf/install_nsis3.sh\"" +
+      ant.exec(command: "\"$installScriptPath\"" +
                         " \"${buildContext.paths.communityHome}\"")
 
-      ant.exec(command: "\"${buildContext.paths.communityHome}/nsis/nsis-3.01/bin/makensis\"" +
+      ant.exec(command: "\"${buildContext.paths.communityHome}/build/tools/nsis/nsis-3.01/bin/makensis\"" +
       " '-X!AddPluginDir \"${box}/NSIS/Plugins/x86-unicode\"'" +
       " '-X!AddIncludeDir \"${box}/NSIS/Include\"'" +
                  " -DNSIS_DIR=\"${box}/NSIS\"" +

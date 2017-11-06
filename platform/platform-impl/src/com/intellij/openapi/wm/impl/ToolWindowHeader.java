@@ -42,6 +42,7 @@ import com.intellij.util.Producer;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.EmptyIcon;
 import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.accessibility.AccessibleContextUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -76,6 +77,7 @@ public abstract class ToolWindowHeader extends JPanel implements Disposable, UIS
 
   ToolWindowHeader(final ToolWindowImpl toolWindow, @NotNull WindowInfoImpl info, @NotNull final Producer<ActionGroup> gearProducer) {
     setLayout(new BorderLayout());
+    AccessibleContextUtil.setName(this, "Tool Window Header");
 
     myToolWindow = toolWindow;
     myInfo = info;
@@ -102,7 +104,7 @@ public abstract class ToolWindowHeader extends JPanel implements Disposable, UIS
     add(westPanel, BorderLayout.CENTER);
 
     westPanel.add(toolWindow.getContentUI().getTabComponent());
-    toolWindow.getContentUI().initMouseListeners(westPanel, toolWindow.getContentUI());
+    ToolWindowContentUi.initMouseListeners(westPanel, toolWindow.getContentUI(), true);
 
     JPanel eastPanel = new JPanel();
     eastPanel.setOpaque(false);
@@ -111,6 +113,9 @@ public abstract class ToolWindowHeader extends JPanel implements Disposable, UIS
     add(eastPanel, BorderLayout.EAST);
 
     myGearButton = new ActionButton(new AnAction() {
+      {
+        getTemplatePresentation().setText("Show Options menu");
+      }
       @Override
       public void actionPerformed(@NotNull AnActionEvent e) {
         final InputEvent inputEvent = e.getInputEvent();
@@ -356,13 +361,13 @@ public abstract class ToolWindowHeader extends JPanel implements Disposable, UIS
     Image image;
     if (isActive()) {
       if (myActiveImage == null || /*myActiveImage.getHeight() != r.height ||*/ type != myImageType) {
-        myActiveImage = drawToBuffer(true, r.height, myToolWindow.getType() == ToolWindowType.FLOATING);
+        myActiveImage = drawToBuffer(g2d, true, r.height, myToolWindow.getType() == ToolWindowType.FLOATING);
       }
 
       image = myActiveImage;
     } else {
       if (myImage == null || /*myImage.getHeight() != r.height ||*/ type != myImageType) {
-        myImage = drawToBuffer(false, r.height, myToolWindow.getType() == ToolWindowType.FLOATING);
+        myImage = drawToBuffer(g2d, false, r.height, myToolWindow.getType() == ToolWindowType.FLOATING);
       }
 
       image = myImage;
@@ -376,10 +381,10 @@ public abstract class ToolWindowHeader extends JPanel implements Disposable, UIS
     }
   }
 
-  private static BufferedImage drawToBuffer(boolean active, int height, boolean floating) {
+  private static BufferedImage drawToBuffer(Graphics2D g2d, boolean active, int height, boolean floating) {
     final int width = 150;
 
-    BufferedImage image = UIUtil.createImage(width, height, BufferedImage.TYPE_INT_ARGB);
+    BufferedImage image = UIUtil.createImage(g2d, width, height, BufferedImage.TYPE_INT_ARGB);
     Graphics2D g = image.createGraphics();
     UIUtil.drawHeader(g, 0, width, height, active, true, !floating, true);
     g.dispose();

@@ -20,6 +20,7 @@ import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream;
@@ -29,7 +30,6 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.SystemProperties;
-import com.intellij.util.lang.UrlClassLoader;
 import com.intellij.util.net.HttpConfigurable;
 import com.intellij.util.net.NetUtils;
 import com.intellij.util.net.ssl.CertificateManager;
@@ -39,6 +39,8 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocketFactory;
 import java.io.*;
 import java.net.*;
 import java.nio.charset.Charset;
@@ -230,8 +232,9 @@ public final class HttpRequests {
     public RequestBuilder productNameAsUserAgent() {
       Application app = ApplicationManager.getApplication();
       if (app != null && !app.isDisposed()) {
-        ApplicationInfo info = ApplicationInfo.getInstance();
-        return userAgent(info.getVersionName() + '/' + info.getBuild().asStringWithoutProductCode());
+        String productName = ApplicationNamesInfo.getInstance().getFullProductName();
+        String version = ApplicationInfo.getInstance().getBuild().asStringWithoutProductCode();
+        return userAgent(productName + '/' + version);
       }
       else {
         return userAgent("IntelliJ");
@@ -353,7 +356,7 @@ public final class HttpRequests {
       FileUtilRt.createParentDirs(file);
 
       boolean deleteFile = true;
-      try (OutputStream out = new FileOutputStream(file)) {
+      try (OutputStream out = new BufferedOutputStream(new FileOutputStream(file))) {
         NetUtils.copyStreamContent(indicator, getInputStream(), out, getConnection().getContentLength());
         deleteFile = false;
       }
@@ -386,7 +389,7 @@ public final class HttpRequests {
                    "Network shouldn't be accessed in EDT or inside read action");
 
     ClassLoader contextLoader = Thread.currentThread().getContextClassLoader();
-    if (contextLoader != null && shouldOverrideContextClassLoader(contextLoader)) {
+    if (contextLoader != null && shouldOverrideContextClassLoader()) {
       // hack-around for class loader lock in sun.net.www.protocol.http.NegotiateAuthentication (IDEA-131621)
       try (URLClassLoader cl = new URLClassLoader(new URL[0], contextLoader)) {
         Thread.currentThread().setContextClassLoader(cl);
@@ -401,14 +404,9 @@ public final class HttpRequests {
     }
   }
 
-  private static boolean shouldOverrideContextClassLoader(ClassLoader contextLoader) {
-    if (!Patches.JDK_BUG_ID_8032832) {
-      return false;
-    }
-    if (!UrlClassLoader.isRegisteredAsParallelCapable(contextLoader)) {
-      return true;
-    }
-    return SystemProperties.getBooleanProperty("http.requests.override.context.classloader", true);
+  private static boolean shouldOverrideContextClassLoader() {
+    return Patches.JDK_BUG_ID_8032832 &&
+           SystemProperties.getBooleanProperty("http.requests.override.context.classloader", true);
   }
 
   private static <T> T doProcess(RequestBuilderImpl builder, RequestProcessor<T> processor) throws IOException {
@@ -448,11 +446,7 @@ public final class HttpRequests {
         request.myUrl = url = "https:" + url.substring(5);
       }
 
-      if (url.startsWith("https:") && ApplicationManager.getApplication() != null) {
-        CertificateManager.getInstance();
-      }
-
-      URLConnection connection;
+      final URLConnection connection;
       if (!builder.myUseProxy) {
         connection = new URL(url).openConnection(Proxy.NO_PROXY);
       }
@@ -463,6 +457,26 @@ public final class HttpRequests {
         connection = HttpConfigurable.getInstance().openConnection(url);
       }
 
+      if (connection instanceof HttpsURLConnection) {
+        if (ApplicationManager.getApplication() != null) {
+          try {
+            final SSLContext context = CertificateManager.getInstance().getSslContext();
+            final SSLSocketFactory factory = context.getSocketFactory();
+            if (factory != null) {
+              ((HttpsURLConnection)connection).setSSLSocketFactory(factory);
+            }
+            else {
+              LOG.info("SSLSocketFactory is not defined by IDE CertificateManager; Using default SSL configuration to connect to " + url);
+            }
+          }
+          catch (Throwable e) {
+            LOG.info("Problems configuring SSL connection to " + url , e);
+          }
+        }
+        else {
+          LOG.info("Application is not initialized yet; Using default SSL configuration to connect to " + url);
+        }
+      }
       connection.setConnectTimeout(builder.myConnectTimeout);
       connection.setReadTimeout(builder.myTimeout);
 
@@ -489,12 +503,14 @@ public final class HttpRequests {
       }
 
       if (connection instanceof HttpURLConnection) {
+        HttpURLConnection httpURLConnection = (HttpURLConnection)connection;
+
         if (LOG.isDebugEnabled()) LOG.debug("connecting to " + url);
-        int responseCode = ((HttpURLConnection)connection).getResponseCode();
+        int responseCode = httpURLConnection.getResponseCode();
         if (LOG.isDebugEnabled()) LOG.debug("response: " + responseCode);
 
         if (responseCode < 200 || responseCode >= 300 && responseCode != HttpURLConnection.HTTP_NOT_MODIFIED) {
-          ((HttpURLConnection)connection).disconnect();
+          httpURLConnection.disconnect();
 
           if (responseCode == HttpURLConnection.HTTP_MOVED_PERM || responseCode == HttpURLConnection.HTTP_MOVED_TEMP) {
             request.myUrl = url = connection.getHeaderField("Location");

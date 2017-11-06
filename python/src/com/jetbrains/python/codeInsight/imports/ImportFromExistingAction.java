@@ -33,11 +33,13 @@ import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileSystemItem;
+import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.util.QualifiedName;
 import com.intellij.ui.SimpleColoredComponent;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.components.JBList;
 import com.intellij.util.Consumer;
+import com.intellij.util.ObjectUtils;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyPsiUtils;
@@ -46,6 +48,8 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import java.awt.*;
 import java.util.List;
+
+import static com.jetbrains.python.psi.PyUtil.as;
 
 /**
  * Turns an unqualified unresolved identifier into qualified and resolvable.
@@ -126,17 +130,12 @@ public class ImportFromExistingAction implements QuestionAction {
       }
     };
 
-    DataManager.getInstance().getDataContextFromFocus().doWhenDone(new Consumer<DataContext>() {
-      @Override
-      public void consume(DataContext dataContext) {
-        new PopupChooserBuilder(list)
-          .setTitle(myUseQualifiedImport? PyBundle.message("ACT.qualify.with.module") : PyBundle.message("ACT.from.some.module.import"))
-          .setItemChoosenCallback(runnable)
-          .setFilteringEnabled(o -> ((ImportCandidateHolder) o).getPresentableText(myName))
-          .createPopup()
-          .showInBestPositionFor(dataContext);
-      }
-    });
+    DataManager.getInstance().getDataContextFromFocus().doWhenDone((Consumer<DataContext>)dataContext -> new PopupChooserBuilder(list)
+      .setTitle(myUseQualifiedImport? PyBundle.message("ACT.qualify.with.module") : PyBundle.message("ACT.from.some.module.import"))
+      .setItemChoosenCallback(runnable)
+      .setFilteringEnabled(o -> ((ImportCandidateHolder) o).getPresentableText(myName))
+      .createPopup()
+      .showInBestPositionFor(dataContext));
   }
 
   private void doIt(final ImportCandidateHolder item) {
@@ -152,7 +151,9 @@ public class ImportFromExistingAction implements QuestionAction {
   private void addImportStatement(ImportCandidateHolder item) {
     final Project project = myTarget.getProject();
     final PyElementGenerator gen = PyElementGenerator.getInstance(project);
-    AddImportHelper.ImportPriority priority = AddImportHelper.getImportPriority(myTarget, item.getFile());
+
+    final PsiFileSystemItem filesystemAnchor = ObjectUtils.chooseNotNull(as(item.getImportable(), PsiFileSystemItem.class), item.getFile());
+    AddImportHelper.ImportPriority priority = AddImportHelper.getImportPriority(myTarget, filesystemAnchor);
     PsiFile file = myTarget.getContainingFile();
     InjectedLanguageManager manager = InjectedLanguageManager.getInstance(project);
     if (manager.isInjectedFragment(file)) {
@@ -203,6 +204,7 @@ public class ImportFromExistingAction implements QuestionAction {
       // add another import element right after the one we got
       PsiElement newImportElement = gen.createImportElement(LanguageLevel.getDefault(), myName, null);
       parent.add(newImportElement);
+      CodeStyleManager.getInstance(myTarget.getProject()).reformat(parent);
     }
     else { // just 'import'
       // all we need is to qualify our target

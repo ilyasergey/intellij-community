@@ -15,13 +15,17 @@
  */
 package com.jetbrains.jsonSchema.impl;
 
+import com.intellij.json.JsonElementTypes;
 import com.intellij.json.psi.*;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.source.tree.LeafPsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.containers.ContainerUtil;
+import com.jetbrains.jsonSchema.extension.JsonLikePsiWalker;
+import com.jetbrains.jsonSchema.extension.adapters.JsonPropertyAdapter;
+import com.jetbrains.jsonSchema.extension.adapters.JsonValueAdapter;
+import com.jetbrains.jsonSchema.impl.adapters.JsonJsonPropertyAdapter;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,18 +41,17 @@ import java.util.stream.Collectors;
 public class JsonOriginalPsiWalker implements JsonLikePsiWalker {
   public static final JsonOriginalPsiWalker INSTANCE = new JsonOriginalPsiWalker();
 
-  @Override
   public boolean handles(@NotNull PsiElement element) {
     return element instanceof JsonElement || element instanceof LeafPsiElement && element.getParent() instanceof JsonElement;
   }
 
   @Override
-  public boolean isName(PsiElement checkable) {
-    final PsiElement parent = checkable.getParent();
+  public boolean isName(PsiElement element) {
+    final PsiElement parent = element.getParent();
     if (parent instanceof JsonObject) {
       return true;
     } else if (parent instanceof JsonProperty) {
-      return PsiTreeUtil.isAncestor(((JsonProperty)parent).getNameElement(), checkable, false);
+      return PsiTreeUtil.isAncestor(((JsonProperty)parent).getNameElement(), element, false);
     }
     return false;
   }
@@ -71,11 +74,8 @@ public class JsonOriginalPsiWalker implements JsonLikePsiWalker {
   }
 
   @Override
-  public List<JsonSchemaWalker.Step> findPosition(@NotNull PsiElement element, boolean isName, boolean forceLastTransition) {
-    final List<JsonSchemaWalker.Step> steps = new ArrayList<>();
-    if (!isName) {
-      steps.add(new JsonSchemaWalker.Step(JsonSchemaWalker.StateType._value, null));
-    }
+  public List<JsonSchemaVariantsTreeBuilder.Step> findPosition(@NotNull PsiElement element, boolean isName, boolean forceLastTransition) {
+    final List<JsonSchemaVariantsTreeBuilder.Step> steps = new ArrayList<>();
     PsiElement current = element;
     while (! (current instanceof PsiFile)) {
       final PsiElement position = current;
@@ -91,20 +91,20 @@ public class JsonOriginalPsiWalker implements JsonLikePsiWalker {
             break;
           }
         }
-        steps.add(new JsonSchemaWalker.Step(JsonSchemaWalker.StateType._array, new JsonSchemaWalker.ArrayTransition(idx)));
+        steps.add(JsonSchemaVariantsTreeBuilder.Step.createArrayElementStep(idx));
       } else if (current instanceof JsonProperty) {
         final String propertyName = ((JsonProperty)current).getName();
         current = current.getParent();
         if (!(current instanceof JsonObject)) return null;//incorrect syntax?
         // if either value or not first in the chain - needed for completion variant
         if (position != element || forceLastTransition) {
-          steps.add(new JsonSchemaWalker.Step(JsonSchemaWalker.StateType._object, new JsonSchemaWalker.PropertyTransition(propertyName)));
+          steps.add(JsonSchemaVariantsTreeBuilder.Step.createPropertyStep(propertyName));
         }
       } else if (current instanceof JsonObject && position instanceof JsonProperty) {
         // if either value or not first in the chain - needed for completion variant
         if (position != element || forceLastTransition) {
           final String propertyName = ((JsonProperty)position).getName();
-          steps.add(new JsonSchemaWalker.Step(JsonSchemaWalker.StateType._object, new JsonSchemaWalker.PropertyTransition(propertyName)));
+          steps.add(JsonSchemaVariantsTreeBuilder.Step.createPropertyStep(propertyName));
         }
       } else if (current instanceof PsiFile) {
         break;
@@ -122,12 +122,26 @@ public class JsonOriginalPsiWalker implements JsonLikePsiWalker {
   }
 
   @Override
-  public boolean hasPropertiesBehind(@NotNull PsiElement element) {
+  public boolean onlyDoubleQuotesForStringLiterals() {
+    return true;
+  }
+
+  @Override
+  public boolean hasPropertiesBehindAndNoComma(@NotNull PsiElement element) {
+    PsiElement current = element instanceof JsonProperty ? element : PsiTreeUtil.getParentOfType(element, JsonProperty.class);
+    while (current != null && current.getNode().getElementType() != JsonElementTypes.COMMA) {
+      current = current.getNextSibling();
+    }
+    int commaOffset = current == null ? Integer.MAX_VALUE : current.getTextRange().getStartOffset();
     final int offset = element.getTextRange().getStartOffset();
     final JsonObject object = PsiTreeUtil.getParentOfType(element, JsonObject.class);
     if (object != null) {
-      return ContainerUtil.or(object.getPropertyList(), prop -> prop.getTextRange().getStartOffset() >= offset &&
-                                                                !PsiTreeUtil.isAncestor(prop, element, false));
+      for (JsonProperty property : object.getPropertyList()) {
+        final int pOffset = property.getTextRange().getStartOffset();
+        if (pOffset >= offset && !PsiTreeUtil.isAncestor(property, element, false)) {
+          return pOffset < commaOffset;
+        }
+      }
     }
     return false;
   }
@@ -137,7 +151,7 @@ public class JsonOriginalPsiWalker implements JsonLikePsiWalker {
     final JsonObject object = PsiTreeUtil.getParentOfType(element, JsonObject.class);
     if (object != null) {
       return object.getPropertyList().stream()
-        .filter(p -> StringUtil.isQuotedString(p.getName()))
+        .filter(p -> p.getNameElement() instanceof JsonStringLiteral)
         .map(p -> StringUtil.unquoteString(p.getName())).collect(Collectors.toSet());
     }
     return Collections.emptySet();

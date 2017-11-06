@@ -1,6 +1,7 @@
 !verbose 2
 
 Unicode true
+ManifestDPIAware true
 !addplugindir "${NSIS_DIR}\Plugins\x86-unicode"
 !addincludedir "${NSIS_DIR}\Include"
 
@@ -332,7 +333,7 @@ Function ConfirmDesktopShortcut
     StrCpy $R1 "64-bit launcher"
   ${Else}
     ;there is only one launcher and it is 64-bit.
-    StrCpy $R0 "64-bit launcher"
+    StrCpy $R0 "${MUI_PRODUCT} launcher"
     StrCpy $R1 ""
   ${EndIf}
   !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field 2" "Text" $R0
@@ -359,6 +360,7 @@ Function ConfirmDesktopShortcut
   ${EndIf}
 customPreActions:
   Call customPreInstallActions
+  SetRegView 32
   StrCmp "${ASSOCIATION}" "NoAssociation" skip_association
   StrCpy $R0 ${INSTALL_OPTION_ELEMENTS}
   push "${ASSOCIATION}"
@@ -382,7 +384,7 @@ Function downloadJre
     inetc::get ${LINK_TO_JRE} "$TEMP\jre.tar.gz" /END
     Pop $0
     ${If} $0 == "OK"
-      untgz::extract "-d" "$INSTDIR" "$TEMP\jre.tar.gz"
+      untgz::extract "-d" "$INSTDIR\jre32" "$TEMP\jre.tar.gz"
       StrCmp $R0 "success" removeTempJre
       DetailPrint "Failed to extract jre.tar.gz"
       MessageBox MB_OK|MB_ICONEXCLAMATION|MB_DEFBUTTON1 "Failed to extract $TEMP\jre.tar.gz"
@@ -457,6 +459,7 @@ LicenseLangString myLicenseData ${LANG_JAPANESE} "${LICENSE_FILE}.txt"
 !endif
 
 Function .onInit
+  SetRegView 32
   StrCpy $baseRegKey "HKCU"
   IfSilent UAC_Done
 UAC_Elevate:
@@ -475,7 +478,11 @@ UAC_Success:
     StrCmp 3 $1 0 UAC_ElevationAborted ;Try again?
     goto UAC_Elevate
 UAC_Admin:
-    StrCpy $INSTDIR "$PROGRAMFILES\${MANUFACTURER}\${PRODUCT_WITH_VER}"
+    ${If} ${RunningX64}
+      StrCpy $INSTDIR "$PROGRAMFILES64\${MANUFACTURER}\${PRODUCT_WITH_VER}"
+    ${Else}
+      StrCpy $INSTDIR "$PROGRAMFILES\${MANUFACTURER}\${PRODUCT_WITH_VER}"
+    ${EndIf}
     SetShellVarContext all
     StrCpy $baseRegKey "HKLM"
 UAC_Done:
@@ -720,7 +727,11 @@ continue_enum_versions_hklm:
 end_enum_versions_hklm:
 
   StrCmp $INSTDIR "" 0 skip_default_instdir
-  StrCpy $INSTDIR "$PROGRAMFILES\${MANUFACTURER}\${MUI_PRODUCT} ${MUI_VERSION_MAJOR}.${MUI_VERSION_MINOR}"
+  ${If} ${RunningX64}
+    StrCpy $INSTDIR "$PROGRAMFILES64\${MANUFACTURER}\${MUI_PRODUCT} ${MUI_VERSION_MAJOR}.${MUI_VERSION_MINOR}"
+  ${Else}
+    StrCpy $INSTDIR "$PROGRAMFILES\${MANUFACTURER}\${MUI_PRODUCT} ${MUI_VERSION_MAJOR}.${MUI_VERSION_MINOR}"
+  ${EndIf}
 skip_default_instdir:
 
   Pop $5
@@ -747,7 +758,7 @@ createRegistration:
   call OMWriteRegStr
   StrCpy $1 "Applications\${PRODUCT_EXE_FILE}\shell\open\command"
   StrCpy $2 ""
-  StrCpy $3 '$productLauncher "%1"'
+  StrCpy $3 '"$productLauncher" "%1"'
   call OMWriteRegStr
 FunctionEnd
 
@@ -767,7 +778,7 @@ skip_backup:
 command_exists:
  WriteRegStr HKCR "${PRODUCT_PATHS_SELECTOR}\DefaultIcon" "" " $productLauncher,0"
  WriteRegStr HKCR "${PRODUCT_PATHS_SELECTOR}\shell\open\command" "" \
-                  '$productLauncher "%1"'
+                  '"$productLauncher" "%1"'
 FunctionEnd
 
 ;------------------------------------------------------------------------------
@@ -814,6 +825,7 @@ next_association:
 
 done:
   Call customInstallActions
+  SetRegView 32
 
 ; registration application to be presented in Open With list
   call ProductRegistration
@@ -850,7 +862,7 @@ done:
 "${Index}-Skip:"
   WriteRegStr HKCR "IntelliJIdeaProjectFile\DefaultIcon" "" "$productLauncher,0"
   WriteRegStr HKCR "IntelliJIdeaProjectFile\shell\open\command" "" \
-    '$productLauncher "%1"'
+    '"$productLauncher" "%1"'
 !undef Index
 
 skip_ipr:
@@ -863,6 +875,8 @@ skip_ipr:
   File "${PRODUCT_PROPERTIES_FILE}"
   File "${PRODUCT_VM_OPTIONS_FILE}"
 
+  Call customPostInstallActions
+  SetRegView 32
   StrCpy $0 $baseRegKey
   StrCpy $1 "Software\${MANUFACTURER}\${PRODUCT_REG_VER}"
   StrCpy $2 ""
@@ -895,7 +909,15 @@ skip_ipr:
   WriteRegDWORD SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}" \
               "NoRepair" 1
 
-  ExecWait "$INSTDIR\jre\jre\bin\javaw.exe -Xshare:dump"
+  ; Regenerating the Shared Archives for java x64 and x86 bit.
+  ; http://docs.oracle.com/javase/8/docs/technotes/guides/vm/class-data-sharing.html
+  IfFileExists $INSTDIR\jre32\bin\javaw.exe 0 java64
+  ExecWait "$INSTDIR\jre32\bin\javaw.exe -Xshare:dump"
+java64:
+  IfFileExists $INSTDIR\jre64\bin\javaw.exe 0 skip_regeneration_shared_archive_for_java_64
+  ExecWait "$INSTDIR\jre64\bin\javaw.exe -Xshare:dump"
+
+skip_regeneration_shared_archive_for_java_64:
   SetOutPath $INSTDIR\bin
 ; set the current time for installation files under $INSTDIR\bin
   ExecDos::exec 'copy "$INSTDIR\bin\*.*s" +,,'
@@ -935,13 +957,18 @@ HKLM:
   goto Done
 cant_find_installation:
   ;admin perm. is required to uninstall?
-  ${UnStrStr} $R0 $INSTDIR $PROGRAMFILES
+  ${If} ${RunningX64}
+    ${UnStrStr} $R0 $INSTDIR $PROGRAMFILES64
+  ${Else}
+    ${UnStrStr} $R0 $INSTDIR $PROGRAMFILES
+  ${EndIf}
   StrCmp $R0 $INSTDIR HKLM HKCU
 Done:
 FunctionEnd
 
 
 Function un.onInit
+  SetRegView 32
   Call un.getRegKey
   StrCmp $baseRegKey "HKLM" requred_admin_perm UAC_Done
 
@@ -1090,6 +1117,7 @@ custom:
 complete:
   FileClose $3
   ${UnStrRep} $2 $2 "/" "\"
+  DetailPrint "path to config/system: $2"
 FunctionEnd
 
 Function un.isIDEInUse
@@ -1121,6 +1149,21 @@ FunctionEnd
 
 
 Section "Uninstall"
+  Call un.customUninstallActions
+  SetRegView 32
+  StrCpy $0 $baseRegKey
+  StrCpy $1 "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_WITH_VER}"
+  StrCpy $2 "InstallLocation"
+  Call un.OMReadRegStr
+  StrCmp $INSTDIR "$3\bin" check_if_IDE_in_use invalid_installation_dir
+invalid_installation_dir:
+  ;check if uninstaller runs from not installation folder
+  IfFileExists "$INSTDIR\IdeaWin32.dll" 0 end_of_uninstall
+  IfFileExists "$INSTDIR\IdeaWin64.dll" 0 end_of_uninstall
+  IfFileExists "$INSTDIR\${PRODUCT_EXE_FILE_64}" 0 end_of_uninstall
+  IfFileExists "$INSTDIR\${PRODUCT_EXE_FILE}" check_if_IDE_in_use 0
+  goto end_of_uninstall
+check_if_IDE_in_use:
   ;check if the uninstalled application is running
   Call un.checkIfIDEInUse
   ; Uninstaller is in the \bin directory, we need upper level dir
@@ -1160,7 +1203,7 @@ skip_delete_settings:
 
 ; Delete uninstaller itself
   Delete "$INSTDIR\bin\Uninstall.exe"
-  Delete "$INSTDIR\jre\jre\bin\client\classes.jsa"
+  Delete "$INSTDIR\jre32\bin\client\classes.jsa"
 
   Push "Complete"
   Push "$INSTDIR\bin\${PRODUCT_EXE_FILE}.vmoptions"

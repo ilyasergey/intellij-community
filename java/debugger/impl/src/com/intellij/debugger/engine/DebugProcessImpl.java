@@ -34,6 +34,7 @@ import com.intellij.debugger.settings.DebuggerSettings;
 import com.intellij.debugger.settings.NodeRendererSettings;
 import com.intellij.debugger.ui.breakpoints.BreakpointManager;
 import com.intellij.debugger.ui.breakpoints.RunToCursorBreakpoint;
+import com.intellij.debugger.ui.breakpoints.StackCapturingLineBreakpoint;
 import com.intellij.debugger.ui.breakpoints.StepIntoBreakpoint;
 import com.intellij.debugger.ui.tree.ValueDescriptor;
 import com.intellij.debugger.ui.tree.render.ArrayRenderer;
@@ -71,7 +72,10 @@ import com.intellij.psi.PsiManager;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.ui.classFilter.ClassFilter;
 import com.intellij.ui.classFilter.DebuggerClassFilterProvider;
-import com.intellij.util.*;
+import com.intellij.util.Alarm;
+import com.intellij.util.Consumer;
+import com.intellij.util.EventDispatcher;
+import com.intellij.util.StringBuilderSpinAllocator;
 import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.HashMap;
@@ -79,6 +83,7 @@ import com.intellij.util.ui.UIUtil;
 import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.impl.XDebugSessionImpl;
+import com.intellij.xdebugger.impl.XDebuggerManagerImpl;
 import com.intellij.xdebugger.impl.actions.XDebuggerActions;
 import com.sun.jdi.*;
 import com.sun.jdi.connect.*;
@@ -198,13 +203,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   public void setWatchMethodReturnValuesEnabled(boolean enabled) {
     final MethodReturnValueWatcher watcher = myReturnValueWatcher;
     if (watcher != null) {
-      watcher.setFeatureEnabled(enabled);
+      watcher.setEnabled(enabled);
     }
-  }
-
-  public boolean isWatchMethodReturnValuesEnabled() {
-    final MethodReturnValueWatcher watcher = myReturnValueWatcher;
-    return watcher != null && watcher.isFeatureEnabled();
   }
 
   public boolean canGetMethodReturnValue() {
@@ -371,6 +371,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       stepRequest.setSuspendPolicy(suspendContext.getSuspendPolicy() == EventRequest.SUSPEND_EVENT_THREAD
                                    ? EventRequest.SUSPEND_EVENT_THREAD
                                    : EventRequest.SUSPEND_ALL);
+
+      stepRequest.addCountFilter(1);
 
       if (hint != null) {
         //noinspection HardCodedStringLiteral
@@ -609,7 +611,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         Arrays.stream(ProjectJdkTable.getInstance().getAllJdks())
           .filter(sdk -> versionMatch(sdk, version))
           .findFirst().ifPresent(sdk -> {
-          XDebugSessionImpl.NOTIFICATION_GROUP.createNotification(
+          XDebuggerManagerImpl.NOTIFICATION_GROUP.createNotification(
             DebuggerBundle.message("message.remote.jre.version.mismatch",
                                    version,
                                    runjre != null ? runjre.getVersionString() : "unknown",
@@ -726,7 +728,12 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     DebuggerManagerThreadImpl.assertIsManagerThread();
     final VirtualMachineProxyImpl vm = myVirtualMachineProxy;
     if (vm == null) {
-      throw new VMDisconnectedException();
+      if (isInInitialState()) {
+        throw new IllegalStateException("Virtual machine is not initialized yet");
+      }
+      else {
+        throw new VMDisconnectedException();
+      }
     }
     return vm;
   }
@@ -1059,6 +1066,16 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
               }
             }
 
+            // workaround for multi-array args bug in jdi calls
+            for (Value arg : myArgs) {
+              if (arg instanceof ArrayReference) {
+                Type type = arg.type();
+                while (type instanceof ArrayType) {
+                  type = ((ArrayType)type).componentType(); // this will throw ClassNotLoadedException if necessary
+                }
+              }
+            }
+
             if (!Patches.IBM_JDK_DISABLE_COLLECTION_BUG) {
               // ensure args are not collected
               StreamEx.of(myArgs).select(ObjectReference.class).forEach(DebuggerUtilsEx::disableCollection);
@@ -1066,6 +1083,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
             // workaround for jdi hang in trace mode
             if (!StringUtil.isEmpty(ourTrace)) {
+              //noinspection ResultOfMethodCallIgnored
               myArgs.forEach(Object::toString);
             }
 
@@ -1158,13 +1176,22 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
                             ClassType classType,
                             Method method,
                             List<? extends Value> args) throws EvaluateException {
-    return invokeMethod(evaluationContext, classType, method, args, false);
+    return invokeMethod(evaluationContext, classType, method, args, 0,false);
   }
 
   public Value invokeMethod(@NotNull EvaluationContext evaluationContext,
                             @NotNull final ClassType classType,
                             @NotNull Method method,
                             @NotNull List<? extends Value> args,
+                            boolean internalEvaluate) throws EvaluateException {
+    return invokeMethod(evaluationContext, classType, method, args, 0, internalEvaluate);
+  }
+
+  public Value invokeMethod(@NotNull EvaluationContext evaluationContext,
+                            @NotNull final ClassType classType,
+                            @NotNull Method method,
+                            @NotNull List<? extends Value> args,
+                            int extraInvocationOptions,
                             boolean internalEvaluate) throws EvaluateException {
     final ThreadReference thread = getEvaluationThread(evaluationContext);
     return new InvokeCommand<Value>(method, args) {
@@ -1176,7 +1203,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         if (LOG.isDebugEnabled()) {
           LOG.debug("Invoking " + classType.name() + "." + method.name());
         }
-        return classType.invokeMethod(thread, method, args, invokePolicy);
+        return classType.invokeMethod(thread, method, args, invokePolicy | extraInvocationOptions);
       }
     }.start((EvaluationContextImpl)evaluationContext, internalEvaluate);
   }
@@ -1195,25 +1222,15 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         if (LOG.isDebugEnabled()) {
           LOG.debug("Invoking " + interfaceType.name() + "." + method.name());
         }
-        if (Patches.JDK_BUG_ID_8042123) {
-          //TODO: remove reflection after move to java 8 or 9, this API was introduced in 1.8.0_45
-          java.lang.reflect.Method invokeMethod =
-            ReflectionUtil.getMethod(InterfaceType.class, "invokeMethod", ThreadReference.class, Method.class, List.class, int.class);
-          if (invokeMethod == null) {
-            throw new IllegalStateException("Interface method invocation is not supported in JVM " +
-                                            SystemInfo.JAVA_VERSION +
-                                            ". Use JVM 1.8.0_45 or higher to run " +
-                                            ApplicationNamesInfo.getInstance().getFullProductName());
-          }
-          try {
-            return (Value)invokeMethod.invoke(interfaceType, thread, method, args, invokePolicy);
-          }
-          catch (Exception e) {
-            throw new RuntimeException(e);
-          }
-        }
-        else {
+
+        try {
           return interfaceType.invokeMethod(thread, method, args, invokePolicy);
+        }
+        catch (LinkageError e) {
+          throw new IllegalStateException("Interface method invocation is not supported in JVM " +
+                                          SystemInfo.JAVA_VERSION +
+                                          ". Use JVM 1.8.0_45 or higher to run " +
+                                          ApplicationNamesInfo.getInstance().getFullProductName());
         }
       }
     }.start((EvaluationContextImpl)evaluationContext, false);
@@ -1398,6 +1415,11 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         LOG.debug(e);
       }
     }
+  }
+
+  public void onHotSwapFinished() {
+    getPositionManager().clearCache();
+    StackCapturingLineBreakpoint.clearCaches(this);
   }
 
   @NotNull
@@ -1991,7 +2013,11 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           afterProcessStarted(() -> getManagerThread().schedule(new DebuggerCommandImpl() {
             @Override
             protected void action() throws Exception {
-              commitVM(vm1);
+              try {
+                commitVM(vm1);
+              } catch (VMDisconnectedException e) {
+                fail();
+              }
             }
           }));
         }
@@ -2024,7 +2050,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       }
 
       @Override
-      public void startNotified(ProcessEvent event) {
+      public void startNotified(@NotNull ProcessEvent event) {
         run();
       }
     }

@@ -19,6 +19,8 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.progress.util.ProgressWindow;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.ScrollPaneFactory;
+import com.intellij.ui.SimpleTextAttributes;
+import com.intellij.ui.UI;
 import com.intellij.vcs.log.data.VcsLogData;
 import com.intellij.vcs.log.data.VcsLogProgress;
 import com.intellij.vcs.log.ui.frame.DetailsPanel;
@@ -68,7 +70,7 @@ public class VcsLogUiUtil {
                                              @NotNull VcsLogData logData,
                                              @NotNull Disposable disposableParent) {
     Runnable miniDetailsLoadedListener = () -> {
-      graphTable.initColumnSize();
+      graphTable.reLayout();
       graphTable.repaint();
     };
     Runnable containingBranchesListener = () -> {
@@ -82,5 +84,11 @@ public class VcsLogUiUtil {
       logData.getContainingBranchesGetter().removeTaskCompletedListener(containingBranchesListener);
       logData.getMiniDetailsGetter().removeDetailsLoadedListener(miniDetailsLoadedListener);
     });
+  }
+
+  @NotNull
+  public static SimpleTextAttributes getLinkAttributes() {
+    return new SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN,
+                                    UI.getColor("link.foreground"));
   }
 }

@@ -1,20 +1,24 @@
 package com.intellij.vcs.log.ui;
 
+import com.google.common.util.concurrent.SettableFuture;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.util.PairFunction;
 import com.intellij.vcs.log.VcsLogFilterCollection;
 import com.intellij.vcs.log.VcsLogFilterUi;
 import com.intellij.vcs.log.data.VcsLogData;
 import com.intellij.vcs.log.graph.PermanentGraph;
 import com.intellij.vcs.log.graph.actions.GraphAction;
 import com.intellij.vcs.log.graph.actions.GraphAnswer;
+import com.intellij.vcs.log.impl.CommonUiProperties;
 import com.intellij.vcs.log.impl.MainVcsLogUiProperties;
 import com.intellij.vcs.log.impl.MainVcsLogUiProperties.VcsLogHighlighterProperty;
 import com.intellij.vcs.log.impl.VcsLogUiPropertiesImpl;
 import com.intellij.vcs.log.ui.frame.MainFrame;
 import com.intellij.vcs.log.ui.highlighters.VcsLogHighlighterFactory;
+import com.intellij.vcs.log.ui.table.GraphTableModel;
 import com.intellij.vcs.log.ui.table.VcsLogGraphTable;
 import com.intellij.vcs.log.visible.VisiblePackRefresher;
 import org.jetbrains.annotations.NotNull;
@@ -87,6 +91,20 @@ public class VcsLogUiImpl extends AbstractVcsLogUi {
                        : "linear branches..."));
   }
 
+  @Override
+  protected <T> void handleCommitNotFound(@NotNull T commitId, @NotNull PairFunction<GraphTableModel, T, Integer> rowGetter) {
+    if (getFilters().isEmpty()) {
+      super.handleCommitNotFound(commitId, rowGetter);
+    }
+    else {
+      showWarningWithLink("Commit " + commitId.toString() + " does not exist or does not match active filters",
+                          "Reset filters and search again.", () -> {
+          getFilterUi().setFilter(null);
+          invokeOnChange(() -> jumpTo(commitId, rowGetter, SettableFuture.create()));
+        });
+    }
+  }
+
   public boolean isShowRootNames() {
     return myUiProperties.get(MainVcsLogUiProperties.SHOW_ROOT_NAMES);
   }
@@ -150,7 +168,7 @@ public class VcsLogUiImpl extends AbstractVcsLogUi {
   private class MyVcsLogUiPropertiesListener extends VcsLogUiPropertiesImpl.MainVcsLogUiPropertiesListener {
     @Override
     public void onShowDetailsChanged() {
-      myMainFrame.showDetails(myUiProperties.get(MainVcsLogUiProperties.SHOW_DETAILS));
+      myMainFrame.showDetails(myUiProperties.get(CommonUiProperties.SHOW_DETAILS));
     }
 
     @Override
@@ -181,6 +199,20 @@ public class VcsLogUiImpl extends AbstractVcsLogUi {
     @Override
     public void onShowTagNamesChanged() {
       myMainFrame.getGraphTable().setShowTagNames(myUiProperties.get(MainVcsLogUiProperties.SHOW_TAG_NAMES));
+    }
+
+    @Override
+    public void onColumnWidthChanged(int column) {
+      myMainFrame.getGraphTable().forceReLayout(column);
+    }
+
+    @Override
+    public void onColumnOrderChanged() {
+      myMainFrame.getGraphTable().onColumnOrderSettingChanged();
+    }
+
+    @Override
+    public void onShowChangesFromParentsChanged() {
     }
 
     @Override

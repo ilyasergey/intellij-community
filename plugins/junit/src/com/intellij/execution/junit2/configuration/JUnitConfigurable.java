@@ -16,9 +16,10 @@
 
 package com.intellij.execution.junit2.configuration;
 
-import com.intellij.application.options.ModulesComboBox;
+import com.intellij.application.options.ModuleDescriptionsComboBox;
 import com.intellij.execution.ExecutionBundle;
 import com.intellij.execution.MethodBrowser;
+import com.intellij.execution.ShortenCommandLine;
 import com.intellij.execution.configuration.BrowseModuleValueActionListener;
 import com.intellij.execution.junit.JUnitConfiguration;
 import com.intellij.execution.junit.JUnitConfigurationType;
@@ -27,7 +28,6 @@ import com.intellij.execution.junit.TestClassFilter;
 import com.intellij.execution.testframework.SourceScope;
 import com.intellij.execution.testframework.TestSearchScope;
 import com.intellij.execution.ui.*;
-import com.intellij.icons.AllIcons;
 import com.intellij.ide.util.ClassFilter;
 import com.intellij.ide.util.PackageChooserDialog;
 import com.intellij.openapi.fileChooser.FileChooser;
@@ -38,11 +38,14 @@ import com.intellij.openapi.fileTypes.PlainTextLanguage;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.*;
+import com.intellij.openapi.ui.ComponentWithBrowseButton;
+import com.intellij.openapi.ui.LabeledComponent;
+import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.openapi.ui.ex.MessagesEx;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vcs.changes.LocalChangeList;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -51,6 +54,7 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.rt.execution.junit.RepeatCount;
 import com.intellij.ui.*;
 import com.intellij.ui.components.JBLabel;
+import com.intellij.ui.components.fields.ExpandableTextField;
 import com.intellij.util.IconUtil;
 import com.intellij.util.ui.UIUtil;
 import gnu.trove.TIntArrayList;
@@ -94,13 +98,14 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
   private LabeledComponent<EditorTextFieldWithBrowseButton> myCategory;
   // Fields
   private JPanel myWholePanel;
-  private LabeledComponent<ModulesComboBox> myModule;
+  private LabeledComponent<ModuleDescriptionsComboBox> myModule;
   private CommonJavaParametersPanel myCommonJavaParameters;
   private JRadioButton myWholeProjectScope;
   private JRadioButton mySingleModuleScope;
   private JRadioButton myModuleWDScope;
   private TextFieldWithBrowseButton myPatternTextField;
   private JrePathEditor myJrePathEditor;
+  private LabeledComponent<ShortenCommandLineModeCombo> myShortenClasspathModeCombo;
   private JComboBox myForkCb;
   private JBLabel myTestLabel;
   private JComboBox myTypeChooser;
@@ -109,6 +114,7 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
   private JComboBox myRepeatCb;
   private JTextField myRepeatCountField;
   private LabeledComponent<JComboBox<String>> myChangeListLabeledComponent;
+  private LabeledComponent<RawCommandLineEditor> myUniqueIdField;
   private Project myProject;
   private JComponent anchor;
 
@@ -154,7 +160,8 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
           return null;
         }
       },
-      new CategoryBrowser(project)
+      new CategoryBrowser(project),
+      null
     };
     // Garbage support
     final DefaultComboBoxModel aModel = new DefaultComboBoxModel();
@@ -164,6 +171,7 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
     aModel.addElement(JUnitConfigurationModel.CLASS);
     aModel.addElement(JUnitConfigurationModel.METHOD);
     aModel.addElement(JUnitConfigurationModel.CATEGORY);
+    aModel.addElement(JUnitConfigurationModel.UNIQUE_ID);
     if (Registry.is("testDiscovery.enabled")) {
       aModel.addElement(JUnitConfigurationModel.BY_SOURCE_POSITION);
       aModel.addElement(JUnitConfigurationModel.BY_SOURCE_CHANGES);
@@ -190,6 +198,9 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
             break;
           case JUnitConfigurationModel.CATEGORY:
             setText("Category");
+            break;
+          case JUnitConfigurationModel.UNIQUE_ID:
+            setText("UniqueId");
             break;
           case JUnitConfigurationModel.BY_SOURCE_POSITION:
             setText("Through source location");
@@ -218,17 +229,9 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
 
     final JPanel panel = myPattern.getComponent();
     panel.setLayout(new BorderLayout());
-    myPatternTextField = new TextFieldWithBrowseButton();
+    myPatternTextField = new TextFieldWithBrowseButton(new ExpandableTextField());
     myPatternTextField.setButtonIcon(IconUtil.getAddIcon());
     panel.add(myPatternTextField, BorderLayout.CENTER);
-    final FixedSizeButton editBtn = new FixedSizeButton();
-    editBtn.setIcon(AllIcons.Actions.ShowViewer);
-    editBtn.addActionListener(new ActionListener() {
-      public void actionPerformed(ActionEvent e) {
-        Messages.showTextAreaDialog(myPatternTextField.getTextField(), "Configure suite tests", "EditParametersPopupWindow");
-      }
-    });
-    panel.add(editBtn, BorderLayout.EAST);
     myTestLocations[JUnitConfigurationModel.PATTERN] = myPattern;
 
     final FileChooserDescriptor dirFileChooser = FileChooserDescriptorFactory.createSingleFolderDescriptor();
@@ -272,6 +275,7 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
     setAnchor(mySearchForTestsLabel);
     myJrePathEditor.setAnchor(myModule.getLabel());
     myCommonJavaParameters.setAnchor(myModule.getLabel());
+    myShortenClasspathModeCombo.setAnchor(myModule.getLabel());
 
     final DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
     myChangeListLabeledComponent.getComponent().setModel(model);
@@ -281,6 +285,8 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
     for (LocalChangeList changeList : changeLists) {
       model.addElement(changeList.getName());
     }
+
+    myShortenClasspathModeCombo.setComponent(new ShortenCommandLineModeCombo(myProject, myJrePathEditor, myModule.getComponent()));
   }
 
   private static void addRadioButtonsListeners(final JRadioButton[] radioButtons, ChangeListener listener) {
@@ -293,7 +299,15 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
   }
 
   public void applyEditorTo(@NotNull final JUnitConfiguration configuration) {
+    configuration.setRepeatMode((String)myRepeatCb.getSelectedItem());
+    try {
+      configuration.setRepeatCount(Integer.parseInt(myRepeatCountField.getText()));
+    }
+    catch (NumberFormatException e) {
+      configuration.setRepeatCount(1);
+    }
     myModel.apply(getModuleSelector().getModule(), configuration);
+    configuration.getPersistentData().setUniqueIds(myUniqueIdField.getComponent().getText().split(" "));
     configuration.getPersistentData().setChangeList((String)myChangeListLabeledComponent.getComponent().getSelectedItem());
     applyHelpersTo(configuration);
     final JUnitConfiguration.Data data = configuration.getPersistentData();
@@ -311,13 +325,7 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
 
     myCommonJavaParameters.applyTo(configuration);
     configuration.setForkMode((String)myForkCb.getSelectedItem());
-    configuration.setRepeatMode((String)myRepeatCb.getSelectedItem());
-    try {
-      configuration.setRepeatCount(Integer.parseInt(myRepeatCountField.getText()));
-    }
-    catch (NumberFormatException e) {
-      configuration.setRepeatCount(1);
-    }
+    configuration.setShortenCommandLine((ShortenCommandLine)myShortenClasspathModeCombo.getComponent().getSelectedItem());
   }
 
   public void resetEditorFrom(@NotNull final JUnitConfiguration configuration) {
@@ -328,6 +336,8 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
 
     myModel.reset(configuration);
     myChangeListLabeledComponent.getComponent().setSelectedItem(configuration.getPersistentData().getChangeList());
+    String[] ids = configuration.getPersistentData().getUniqueIds();
+    myUniqueIdField.getComponent().setText(ids != null ? StringUtil.join(ids, " ") : null);
     myCommonJavaParameters.reset(configuration);
     getModuleSelector().reset(configuration);
     final TestSearchScope scope = configuration.getPersistentData().getScope();
@@ -343,6 +353,7 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
     myJrePathEditor
       .setPathOrName(configuration.getAlternativeJrePath(), configuration.isAlternativeJrePathEnabled());
     myForkCb.setSelectedItem(configuration.getForkMode());
+    myShortenClasspathModeCombo.getComponent().setSelectedItem(configuration.getShortenCommandLine());
   }
 
   private void changePanel () {
@@ -357,6 +368,7 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
       myPattern.setVisible(false);
       myClass.setVisible(false);
       myCategory.setVisible(false);
+      myUniqueIdField.setVisible(false);
       myMethod.setVisible(false);
       myDir.setVisible(false);
       myChangeListLabeledComponent.setVisible(false);
@@ -370,6 +382,7 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
       myPattern.setVisible(false);
       myClass.setVisible(false);
       myCategory.setVisible(false);
+      myUniqueIdField.setVisible(false);
       myChangeListLabeledComponent.setVisible(false);
       myMethod.setVisible(false);
       myForkCb.setEnabled(true);
@@ -383,6 +396,7 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
       myDir.setVisible(false);
       myClass.setVisible(true);
       myCategory.setVisible(false);
+      myUniqueIdField.setVisible(false);
       myChangeListLabeledComponent.setVisible(false);
       myMethod.setVisible(false);
       myForkCb.setEnabled(true);
@@ -396,6 +410,7 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
       myDir.setVisible(false);
       myClass.setVisible(true);
       myCategory.setVisible(false);
+      myUniqueIdField.setVisible(false);
       myMethod.setVisible(true);
       myChangeListLabeledComponent.setVisible(false);
       myForkCb.setEnabled(false);
@@ -407,6 +422,7 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
       myPattern.setVisible(false);
       myClass.setVisible(false);
       myCategory.setVisible(true);
+      myUniqueIdField.setVisible(false);
       myMethod.setVisible(false);
       myChangeListLabeledComponent.setVisible(false);
       myForkCb.setEnabled(true);
@@ -420,8 +436,23 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
       myPattern.setVisible(false);
       myClass.setVisible(false);
       myCategory.setVisible(false);
+      myUniqueIdField.setVisible(false);
       myMethod.setVisible(false);
       myChangeListLabeledComponent.setVisible(true);
+      myForkCb.setEnabled(true);
+      myForkCb.setModel(new DefaultComboBoxModel(FORK_MODE_ALL));
+      myForkCb.setSelectedItem(selectedItem);
+    }
+    else if (selectedType == JUnitConfigurationModel.UNIQUE_ID) {
+      myPackagePanel.setVisible(false);
+      myScopesPanel.setVisible(false);
+      myDir.setVisible(false);
+      myPattern.setVisible(false);
+      myClass.setVisible(false);
+      myCategory.setVisible(false);
+      myUniqueIdField.setVisible(true);
+      myMethod.setVisible(false);
+      myChangeListLabeledComponent.setVisible(false);
       myForkCb.setEnabled(true);
       myForkCb.setModel(new DefaultComboBoxModel(FORK_MODE_ALL));
       myForkCb.setSelectedItem(selectedItem);
@@ -433,6 +464,7 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
       myDir.setVisible(false);
       myClass.setVisible(false);
       myCategory.setVisible(false);
+      myUniqueIdField.setVisible(false);
       myMethod.setVisible(true);
       myChangeListLabeledComponent.setVisible(false);
       myForkCb.setEnabled(true);
@@ -445,7 +477,7 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
     return new DefaultComboBoxModel(RepeatCount.ONCE.equals(myRepeatCb.getSelectedItem()) ? FORK_MODE : FORK_MODE_ALL);
   }
 
-  public ModulesComboBox getModulesComponent() {
+  public ModuleDescriptionsComboBox getModulesComponent() {
     return myModule.getComponent();
   }
 
@@ -524,6 +556,8 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
                                                                                                           JavaCodeFragment.VisibilityChecker.EVERYTHING_VISIBLE,
                                                                                                           PlainTextLanguage.INSTANCE.getAssociatedFileType());
     myMethod.setComponent(textFieldWithBrowseButton);
+
+    myShortenClasspathModeCombo = new LabeledComponent<>();
   }
 
   @Override
@@ -542,6 +576,7 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
     myPattern.setAnchor(anchor);
     myPackage.setAnchor(anchor);
     myCategory.setAnchor(anchor);
+    myUniqueIdField.setAnchor(anchor);
     myChangeListLabeledComponent.setAnchor(anchor);
   }
 
@@ -554,7 +589,8 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
       myModule.setEnabled(false);
     } else */if (newType != JUnitConfigurationModel.ALL_IN_PACKAGE &&
                  newType != JUnitConfigurationModel.PATTERN &&
-                 newType != JUnitConfigurationModel.CATEGORY) {
+                 newType != JUnitConfigurationModel.CATEGORY &&
+                 newType != JUnitConfigurationModel.UNIQUE_ID) {
       myModule.setEnabled(true);
     }
     else {
@@ -566,7 +602,8 @@ public class JUnitConfigurable<T extends JUnitConfiguration> extends SettingsEdi
     final Integer selectedItem = (Integer)myTypeChooser.getSelectedItem();
     final boolean allInPackageAllInProject = (selectedItem == JUnitConfigurationModel.ALL_IN_PACKAGE ||
                                               selectedItem == JUnitConfigurationModel.PATTERN ||
-                                              selectedItem == JUnitConfigurationModel.CATEGORY) && myWholeProjectScope.isSelected();
+                                              selectedItem == JUnitConfigurationModel.CATEGORY ||
+                                              selectedItem == JUnitConfigurationModel.UNIQUE_ID ) && myWholeProjectScope.isSelected();
     myModule.setEnabled(!allInPackageAllInProject);
     if (allInPackageAllInProject) {
       myModule.getComponent().setSelectedItem(null);

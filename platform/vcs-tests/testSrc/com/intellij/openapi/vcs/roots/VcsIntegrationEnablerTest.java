@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,7 +32,7 @@ import java.io.File;
 import java.util.Collection;
 import java.util.List;
 
-public class VcsIntegrationEnablerTest extends VcsRootPlatformTest {
+public class VcsIntegrationEnablerTest extends VcsRootBaseTest {
 
   private VirtualFile myTestRoot;
 
@@ -42,7 +42,7 @@ public class VcsIntegrationEnablerTest extends VcsRootPlatformTest {
     String vcsNotifierKey = VcsNotifier.class.getName();
     picoContainer.unregisterComponent(vcsNotifierKey);
     picoContainer.registerComponentImplementation(vcsNotifierKey, TestVcsNotifier.class);
-    myTestRoot = myProjectRoot.getParent();
+    myTestRoot = projectRoot.getParent();
   }
 
   public void testOneRootForTheWholeProjectThenJustAddVcsRoot() {
@@ -51,7 +51,7 @@ public class VcsIntegrationEnablerTest extends VcsRootPlatformTest {
 
   public void testNoMockRootsThenInitAndNotify() {
     doTest(given(),
-           notification("Created mock repository in " + myProjectRoot.getPresentableUrl()), ".", VcsTestUtil.toAbsolute(".", myProject));
+           notification("Created mock repository in " + projectRoot.getPresentableUrl()), ".", VcsTestUtil.toAbsolute(".", myProject));
   }
 
   public void testBelowMockNoInsideThenNotify() {
@@ -61,7 +61,7 @@ public class VcsIntegrationEnablerTest extends VcsRootPlatformTest {
 
   public void testMockForProjectSomeInsideThenNotify() {
     doTest(given(".", "community"),
-           notification("Added mock roots: " + myProjectRoot.getPresentableUrl() + ", " + getPresentationForRoot("community")));
+           notification("Added mock roots: " + projectRoot.getPresentableUrl() + ", " + getPresentationForRoot("community")));
   }
 
   public void testBelowMockSomeInsideThenNotify() {
@@ -105,7 +105,7 @@ public class VcsIntegrationEnablerTest extends VcsRootPlatformTest {
   }
 
   void assertMockInit(@NotNull String root) {
-    File rootFile = new File(myProjectRoot.getPath(), root);
+    File rootFile = new File(projectRoot.getPath(), root);
     assertTrue(new File(rootFile.getPath(), DOT_MOCK).exists());
   }
 
@@ -139,9 +139,8 @@ public class VcsIntegrationEnablerTest extends VcsRootPlatformTest {
 
     @Override
     protected boolean initOrNotifyError(@NotNull final VirtualFile projectDir) {
-      File file = new File(projectDir.getPath(), ".mock");
+      File file = new File(projectDir.getPath(), DOT_MOCK);
       VcsNotifier.getInstance(myProject).notifySuccess("Created mock repository in " + projectDir.getPresentableUrl());
-      myFilesToDelete.add(file);
       return file.mkdir();
     }
   }

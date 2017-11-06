@@ -22,13 +22,13 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.xdebugger.XDebuggerTestUtil;
-import com.jetbrains.python.sdkTools.SdkCreationType;
+import com.jetbrains.python.tools.sdkTools.SdkCreationType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.junit.Assert;
 
-import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -58,6 +58,11 @@ public abstract class PyProcessWithConsoleTestTask<T extends ProcessWithConsoleR
   private static final Logger LOG = Logger.getInstance(PyProcessWithConsoleTestTask.class);
   @NotNull
   private final SdkCreationType myRequiredSdkType;
+  /**
+   * @see #toFullPath(String)
+   */
+  @Nullable
+  private VirtualFile myLatestUsedScript;
 
   /**
    * @param requiredSdkType this task creates sdk and binds it to fixture module. Provide type of SDK your test needs.
@@ -92,7 +97,7 @@ public abstract class PyProcessWithConsoleTestTask<T extends ProcessWithConsoleR
     Disposer.dispose(runner);
   }
 
-  private void executeRunner(final String sdkHome, final T runner) throws InterruptedException, InvocationTargetException {
+  private void executeRunner(final String sdkHome, final T runner) throws InterruptedException {
     // Semaphore to wait end of process
     final Semaphore processStartedSemaphore = new Semaphore(1);
     processStartedSemaphore.acquire();
@@ -105,14 +110,14 @@ public abstract class PyProcessWithConsoleTestTask<T extends ProcessWithConsoleR
 
     final ProcessAdapter processListener = new ProcessAdapter() {
       @Override
-      public void startNotified(final ProcessEvent event) {
+      public void startNotified(@NotNull final ProcessEvent event) {
         super.startNotified(event);
         processHandlerRef.set(event.getProcessHandler());
         processStartedSemaphore.release();
       }
 
       @Override
-      public void onTextAvailable(final ProcessEvent event, final Key outputType) {
+      public void onTextAvailable(@NotNull final ProcessEvent event, @NotNull final Key outputType) {
         super.onTextAvailable(event, outputType); //Store text for user
         final String text = event.getText();
         stdAll.append(text);
@@ -199,4 +204,26 @@ public abstract class PyProcessWithConsoleTestTask<T extends ProcessWithConsoleR
    * @param all    joined stdout and stderr
    */
   protected abstract void checkTestResults(@NotNull T runner, @NotNull String stdout, @NotNull String stderr, @NotNull String all);
+
+  /**
+   * Converts script or folder name to full path and stores internally to retrived with {@link #getWorkingFolderForScript()}
+   */
+  @NotNull
+  public String toFullPath(@NotNull final String scriptName) {
+    myLatestUsedScript = myFixture.getTempDirFixture().getFile(scriptName);
+    assert myLatestUsedScript != null: "File not found " + scriptName;
+    return myLatestUsedScript.getPath();
+  }
+
+  /**
+   * @see #toFullPath(String)
+   */
+  @Nullable
+  public String getWorkingFolderForScript() {
+    final VirtualFile script = myLatestUsedScript;
+    if (script == null) {
+      return null;
+    }
+    return (script.isDirectory() ? script : script.getParent()).getPath();
+  }
 }

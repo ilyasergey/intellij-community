@@ -184,39 +184,20 @@ public class LinkLabel<T> extends JLabel {
 
       if (isFocusOwner()){
         g.setColor(UIUtil.getTreeSelectionBorderColor());
-        Rectangle bounds = getTextBounds();
-        // JLabel draws the text relative to the baseline. So, we must ensure
-        // we draw the dotted rectangle relative to that same baseline.
-        FontMetrics fm = getFontMetrics(getFont());
-        int baseLine = getUI().getBaseline(this, getWidth(), getHeight());
-        int textY = baseLine - fm.getLeading() - fm.getAscent();
-        int textHeight = fm.getHeight();
-        UIUtil.drawDottedRectangle(g, bounds.x, textY, bounds.x + bounds.width - 1, textY + textHeight - 1);
+        UIUtil.drawLabelDottedRectangle(this, g, getTextBounds());
       }
     }
   }
 
   @NotNull
   protected Rectangle getTextBounds() {
-    final Dimension size = getPreferredSize();
-    Icon icon = getIcon();
-    final Point point = new Point(0, 0);
-    final Insets insets = getInsets();
-    if (icon != null) {
-      point.x += getIconTextGap();
-      point.x += icon.getIconWidth();
-    }
-    point.x += insets.left;
-    point.y += insets.top;
-    size.width -= point.x;
-    size.width -= insets.right;
-    size.height -= insets.bottom;
-
-    return new Rectangle(point, size);
+    return UIUtil.getLabelTextBounds(this);
   }
 
   protected Color getTextColor() {
-    return myIsLinkActive ? getActive() : isVisited() ? getVisited() : getNormal();
+    return myIsLinkActive ? getActive() :
+            myUnderline ? getHover() :
+              isVisited() ? getVisited() : getNormal();
   }
 
   public void setPaintUnderline(boolean paintUnderline) {
@@ -271,8 +252,13 @@ public class LinkLabel<T> extends JLabel {
     return textR.contains(pt);
   }
 
+  //for GUI tests
+  public Point getTextRectangleCenter() {
+    return new Point(textR.x + textR.width / 2, textR.y + textR.height / 2);
+  }
+
   private void enableUnderline() {
-    setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+    UIUtil.setCursor(this, Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
     myUnderline = true;
     if (myHoveringIcon != null) {
       super.setIcon(myHoveringIcon);
@@ -286,7 +272,7 @@ public class LinkLabel<T> extends JLabel {
   }
 
   private void disableUnderline() {
-    setCursor(Cursor.getDefaultCursor());
+    UIUtil.setCursor(this, Cursor.getDefaultCursor());
     myUnderline = false;
     super.setIcon(myInactiveIcon);
     setStatusBarText(null);
@@ -315,6 +301,10 @@ public class LinkLabel<T> extends JLabel {
 
   protected Color getNormal() {
     return UI.getColor("link.foreground");
+  }
+
+  protected Color getHover() {
+    return UI.getColor("link.hover.foreground");
   }
 
   public void entered(MouseEvent e) {

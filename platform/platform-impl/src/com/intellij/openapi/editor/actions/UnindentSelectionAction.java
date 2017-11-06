@@ -14,14 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: May 13, 2002
- * Time: 10:47:00 PM
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.openapi.editor.actions;
 
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -32,8 +24,6 @@ import com.intellij.openapi.editor.actionSystem.EditorAction;
 import com.intellij.openapi.editor.actionSystem.EditorWriteActionHandler;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.project.Project;
-import com.intellij.psi.PsiDocumentManager;
-import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 
 public class UnindentSelectionAction extends EditorAction {
@@ -54,7 +44,7 @@ public class UnindentSelectionAction extends EditorAction {
 
     @Override
     public boolean isEnabled(Editor editor, DataContext dataContext) {
-      return !editor.isOneLineMode() && !((EditorEx)editor).isEmbeddedIntoDialogWrapper();
+      return !editor.isViewer() && !editor.isOneLineMode() && !((EditorEx)editor).isEmbeddedIntoDialogWrapper();
     }
   }
 
@@ -81,9 +71,7 @@ public class UnindentSelectionAction extends EditorAction {
 
     if (startIndex < 0 || endIndex < 0) return;
 
-    PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(document);
-
-    int blockIndent = CodeStyleSettingsManager.getSettings(project).getIndentOptionsByFile(file).INDENT_SIZE;
+    int blockIndent = CodeStyleSettingsManager.getIndentOptions(project, document).INDENT_SIZE;
     IndentSelectionAction.doIndent(endIndex, startIndex, document, project, editor, -blockIndent);
   }
 }

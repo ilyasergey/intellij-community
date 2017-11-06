@@ -1,5 +1,4 @@
-# Stubs for inspect
-
+import sys
 from typing import (AbstractSet, Any, Tuple, List, Dict, Callable, Generator,
                     Mapping, MutableMapping, NamedTuple, Optional, Sequence, Union,
                     )
@@ -8,15 +7,17 @@ from types import FrameType, ModuleType, TracebackType
 #
 # Types and members
 #
-ModuleInfo = NamedTuple('ModuleInfo', [('name', str),
-                                       ('suffix', str),
-                                       ('mode', str),
-                                       ('module_type', int),
-                                       ])
+if sys.version_info < (3, 6):
+    ModuleInfo = NamedTuple('ModuleInfo', [('name', str),
+                                           ('suffix', str),
+                                           ('mode', str),
+                                           ('module_type', int),
+                                           ])
+    def getmoduleinfo(path: str) -> Optional[ModuleInfo]: ...
+
 def getmembers(object: object,
                predicate: Callable[[Any], bool] = ...,
                ) -> List[Tuple[str, Any]]: ...
-def getmoduleinfo(path: str) -> Optional[ModuleInfo]: ...
 def getmodulename(path: str) -> Optional[str]: ...
 
 def ismodule(object: object) -> bool: ...
@@ -95,7 +96,7 @@ class Signature:
                       follow_wrapped: bool = True) -> 'Signature': ...
 
 # The name is the same as the enum's name in CPython
-class _ParameterKind: pass
+class _ParameterKind: ...
 
 class Parameter:
     def __init__(self,
@@ -172,7 +173,7 @@ def getargvalues(frame: FrameType) -> ArgInfo: ...
 def formatargspec(args: List[str],
                   varargs: Optional[str] = ...,
                   varkw: Optional[str] = ...,
-                  defaults: Optional[Tuple[Any]] = ...,
+                  defaults: Optional[Tuple[Any, ...]] = ...,
                   kwonlyargs: Optional[List[str]] = ...,
                   kwonlydefaults: Optional[Dict[str, Any]] = ...,
                   annotations: Optional[Dict[str, Any]] = ...,

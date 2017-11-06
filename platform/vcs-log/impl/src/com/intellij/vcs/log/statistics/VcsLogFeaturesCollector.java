@@ -15,16 +15,16 @@
  */
 package com.intellij.vcs.log.statistics;
 
-import com.intellij.internal.statistic.AbstractApplicationUsagesCollector;
-import com.intellij.internal.statistic.CollectUsagesException;
-import com.intellij.internal.statistic.StatisticsUtilKt;
+import com.intellij.internal.statistic.AbstractProjectsUsagesCollector;
 import com.intellij.internal.statistic.beans.ConvertUsagesUtil;
 import com.intellij.internal.statistic.beans.GroupDescriptor;
 import com.intellij.internal.statistic.beans.UsageDescriptor;
+import com.intellij.internal.statistic.utils.StatisticsUtilKt;
 import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.graph.PermanentGraph;
+import com.intellij.vcs.log.impl.CommonUiProperties;
 import com.intellij.vcs.log.impl.MainVcsLogUiProperties;
 import com.intellij.vcs.log.impl.VcsProjectLog;
 import com.intellij.vcs.log.ui.VcsLogUiImpl;
@@ -37,12 +37,12 @@ import java.util.Set;
 import static com.intellij.vcs.log.impl.MainVcsLogUiProperties.*;
 import static com.intellij.vcs.log.ui.VcsLogUiImpl.LOG_HIGHLIGHTER_FACTORY_EP;
 
-public class VcsLogFeaturesCollector extends AbstractApplicationUsagesCollector {
+public class VcsLogFeaturesCollector extends AbstractProjectsUsagesCollector {
   public static final GroupDescriptor ID = GroupDescriptor.create("VCS Log Ui Settings");
 
   @NotNull
   @Override
-  public Set<UsageDescriptor> getProjectUsages(@NotNull Project project) throws CollectUsagesException {
+  public Set<UsageDescriptor> getProjectUsages(@NotNull Project project) {
     VcsProjectLog projectLog = VcsProjectLog.getInstance(project);
     if (projectLog != null) {
       VcsLogUiImpl ui = projectLog.getMainLogUi();
@@ -50,7 +50,7 @@ public class VcsLogFeaturesCollector extends AbstractApplicationUsagesCollector 
         MainVcsLogUiProperties properties = ui.getProperties();
 
         Set<UsageDescriptor> usages = ContainerUtil.newHashSet();
-        usages.add(StatisticsUtilKt.getBooleanUsage("ui.details", properties.get(SHOW_DETAILS)));
+        usages.add(StatisticsUtilKt.getBooleanUsage("ui.details", properties.get(CommonUiProperties.SHOW_DETAILS)));
         usages.add(StatisticsUtilKt.getBooleanUsage("ui.long.edges", properties.get(SHOW_LONG_EDGES)));
 
         PermanentGraph.SortType sortType = properties.get(BEK_SORT_TYPE);

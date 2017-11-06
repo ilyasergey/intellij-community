@@ -27,15 +27,17 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
-import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.PopupHandler;
 import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.components.JBLayeredPane;
 import com.intellij.ui.components.Magnificator;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.intellij.images.ImagesBundle;
 import org.intellij.images.editor.ImageDocument;
+import org.intellij.images.editor.ImageDocument.ScaledImageProvider;
 import org.intellij.images.editor.ImageEditor;
 import org.intellij.images.editor.ImageZoomModel;
 import org.intellij.images.editor.actionSystem.ImageEditorActions;
@@ -78,7 +80,8 @@ final class ImageEditorUI extends JPanel implements DataProvider, CopyProvider, 
   @NonNls
   private static final String ZOOM_FACTOR_PROP = "ImageEditor.zoomFactor";
 
-  private final @Nullable ImageEditor editor;
+  @Nullable
+  private final ImageEditor editor;
   private final DeleteProvider deleteProvider;
   private final CopyPasteSupport copyPasteSupport;
 
@@ -95,6 +98,7 @@ final class ImageEditorUI extends JPanel implements DataProvider, CopyProvider, 
   ImageEditorUI(@Nullable ImageEditor editor) {
     this.editor = editor;
 
+    imageComponent.addPropertyChangeListener(ZOOM_FACTOR_PROP, e -> imageComponent.setZoomFactor(getZoomModel().getZoomFactor()));
     Options options = OptionsManager.getInstance().getOptions();
     EditorOptions editorOptions = options.getEditorOptions();
     options.addPropertyChangeListener(optionsChangeListener);
@@ -172,7 +176,7 @@ final class ImageEditorUI extends JPanel implements DataProvider, CopyProvider, 
     JPanel topPanel = new JPanel(new BorderLayout());
     topPanel.add(toolbarPanel, BorderLayout.WEST);
     infoLabel = new JLabel((String)null, SwingConstants.RIGHT);
-    infoLabel.setBorder(IdeBorderFactory.createEmptyBorder(0, 0, 0, 2));
+    infoLabel.setBorder(JBUI.Borders.emptyRight(2));
     topPanel.add(infoLabel, BorderLayout.EAST);
 
     add(topPanel, BorderLayout.NORTH);
@@ -251,11 +255,11 @@ final class ImageEditorUI extends JPanel implements DataProvider, CopyProvider, 
     return zoomModel;
   }
 
-  public void setImage(BufferedImage image, String format) {
+  public void setImageProvider(ScaledImageProvider imageProvider, String format) {
     ImageDocument document = imageComponent.getDocument();
     BufferedImage previousImage = document.getValue();
-    document.setValue(image);
-    if (image == null) return;
+    document.setValue(imageProvider);
+    if (imageProvider == null) return;
     document.setFormat(format);
     ImageZoomModel zoomModel = getZoomModel();
     if (previousImage == null || !zoomModel.isZoomLevelChanged()) {
@@ -266,6 +270,7 @@ final class ImageEditorUI extends JPanel implements DataProvider, CopyProvider, 
       zoomModel.setZoomFactor(1.0d);
 
       if (zoomOptions.isSmartZooming()) {
+        BufferedImage image = imageProvider.apply(zoomModel.getZoomFactor());
         Dimension prefferedSize = zoomOptions.getPrefferedSize();
         if (prefferedSize.width > image.getWidth() && prefferedSize.height > image.getHeight()) {
           // Resize to preffered size
@@ -367,11 +372,13 @@ final class ImageEditorUI extends JPanel implements DataProvider, CopyProvider, 
     public double getZoomFactor() {
       Dimension size = imageComponent.getCanvasSize();
       BufferedImage image = imageComponent.getDocument().getValue();
-      return image != null ? size.getWidth() / (double)image.getWidth() : 0.0d;
+      return image != null ? size.getWidth() / (double)image.getWidth() : 1.0d;
     }
 
     public void setZoomFactor(double zoomFactor) {
       double oldZoomFactor = getZoomFactor();
+
+      if (Double.compare(oldZoomFactor, zoomFactor) == 0) return;
 
       // Change current size
       Dimension size = imageComponent.getCanvasSize();
@@ -483,31 +490,45 @@ final class ImageEditorUI extends JPanel implements DataProvider, CopyProvider, 
 
   @Nullable
   public Object getData(String dataId) {
-
     if (CommonDataKeys.PROJECT.is(dataId)) {
       return editor != null ? editor.getProject() : null;
-    } else if (CommonDataKeys.VIRTUAL_FILE.is(dataId)) {
+    }
+    else if (CommonDataKeys.VIRTUAL_FILE.is(dataId)) {
       return editor != null ? editor.getFile() : null;
-    } else if (CommonDataKeys.VIRTUAL_FILE_ARRAY.is(dataId)) {
+    }
+    else if (CommonDataKeys.VIRTUAL_FILE_ARRAY.is(dataId)) {
       return editor != null ? new VirtualFile[]{editor.getFile()} : VirtualFile.EMPTY_ARRAY;
-    } else if (CommonDataKeys.PSI_FILE.is(dataId)) {
-      return getData(CommonDataKeys.PSI_ELEMENT.getName());
-    } else if (CommonDataKeys.PSI_ELEMENT.is(dataId)) {
-      VirtualFile file = editor != null ? editor.getFile() : null;
-      return file != null && file.isValid() ? PsiManager.getInstance(editor.getProject()).findFile(file) : null;
-    } else if (LangDataKeys.PSI_ELEMENT_ARRAY.is(dataId)) {
-      return editor != null ? new PsiElement[]{(PsiElement)getData(CommonDataKeys.PSI_ELEMENT.getName())} : PsiElement.EMPTY_ARRAY;
-    } else if (PlatformDataKeys.COPY_PROVIDER.is(dataId) && copyPasteSupport != null) {
+    }
+    else if (CommonDataKeys.PSI_FILE.is(dataId)) {
+      return findPsiFile();
+    }
+    else if (CommonDataKeys.PSI_ELEMENT.is(dataId)) {
+      return findPsiFile();
+    }
+    else if (LangDataKeys.PSI_ELEMENT_ARRAY.is(dataId)) {
+      PsiElement psi = findPsiFile();
+      return psi != null ? new PsiElement[]{psi} : PsiElement.EMPTY_ARRAY;
+    }
+    else if (PlatformDataKeys.COPY_PROVIDER.is(dataId) && copyPasteSupport != null) {
       return this;
-    } else if (PlatformDataKeys.CUT_PROVIDER.is(dataId) && copyPasteSupport != null) {
+    }
+    else if (PlatformDataKeys.CUT_PROVIDER.is(dataId) && copyPasteSupport != null) {
       return copyPasteSupport.getCutProvider();
-    } else if (PlatformDataKeys.DELETE_ELEMENT_PROVIDER.is(dataId)) {
+    }
+    else if (PlatformDataKeys.DELETE_ELEMENT_PROVIDER.is(dataId)) {
       return deleteProvider;
-    } else if (ImageComponentDecorator.DATA_KEY.is(dataId)) {
+    }
+    else if (ImageComponentDecorator.DATA_KEY.is(dataId)) {
       return editor != null ? editor : this;
     }
 
     return null;
+  }
+
+  @Nullable
+  private PsiFile findPsiFile() {
+    VirtualFile file = editor != null ? editor.getFile() : null;
+    return file != null && file.isValid() ? PsiManager.getInstance(editor.getProject()).findFile(file) : null;
   }
 
   @Override

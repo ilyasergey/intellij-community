@@ -33,7 +33,6 @@ import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.DocumentAdapter;
 import com.intellij.ui.SearchTextField;
-import com.intellij.ui.SearchTextFieldWithStoredHistory;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.*;
@@ -184,15 +183,26 @@ public class VcsLogClassicFilterUi implements VcsLogFilterUi {
     return Pair.create(textFilter, hashFilter);
   }
 
+  /**
+   * Only VcsLogBranchFilter, VcsLogStructureFilter and null (which means resetting all filters) are currently supported.
+   */
   @Override
-  public void setFilter(@NotNull VcsLogFilter filter) {
+  public void setFilter(@Nullable VcsLogFilter filter) {
     ApplicationManager.getApplication().assertIsDispatchThread();
-    if (filter instanceof VcsLogBranchFilter) {
+    if (filter == null) {
+      myBranchFilterModel.setFilter(null);
+      myStructureFilterModel.setFilter(null);
+      myDateFilterModel.setFilter(null);
+      myTextFilterModel.setFilter(null);
+      myUserFilterModel.setFilter(null);
+    }
+    else if (filter instanceof VcsLogBranchFilter) {
       myBranchFilterModel.setFilter((VcsLogBranchFilter)filter);
     }
     else if (filter instanceof VcsLogStructureFilter) {
       myStructureFilterModel.setFilter(new VcsLogFileFilter((VcsLogStructureFilter)filter, null));
     }
+
     JComponent toolbar = myUi.getToolbar();
     toolbar.revalidate();
     toolbar.repaint();
@@ -443,7 +453,7 @@ public class VcsLogClassicFilterUi implements VcsLogFilterUi {
     }
   }
 
-  private static class TextFilterField extends SearchTextFieldWithStoredHistory {
+  private static class TextFilterField extends SearchTextField {
     @NotNull private final TextFilterModel myTextFilterModel;
 
     public TextFilterField(@NotNull TextFilterModel model) {

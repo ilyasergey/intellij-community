@@ -1,5 +1,6 @@
 package com.intellij.coverage.actions;
 
+import com.intellij.CommonBundle;
 import com.intellij.coverage.*;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ComboBoxAction;
@@ -9,12 +10,12 @@ import com.intellij.openapi.fileChooser.FileChooser;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.*;
 import com.intellij.util.IconUtil;
 import com.intellij.util.PlatformIcons;
-import com.intellij.util.containers.Convertor;
 import com.intellij.util.containers.HashMap;
 import com.intellij.util.text.DateFormatUtil;
 import com.intellij.util.ui.tree.TreeUtil;
@@ -32,16 +33,12 @@ import java.awt.event.ActionEvent;
 import java.util.*;
 import java.util.List;
 
-/**
- * User: anna
- * Date: 11/27/10
- */
 public class CoverageSuiteChooserDialog extends DialogWrapper {
   @NonNls private static final String LOCAL = "Local";
   private final Project myProject;
   private final CheckboxTree mySuitesTree;
   private final CoverageDataManager myCoverageManager;
-  private static final Logger LOG = Logger.getInstance("#" + CoverageSuiteChooserDialog.class.getName());
+  private static final Logger LOG = Logger.getInstance(CoverageSuiteChooserDialog.class);
   private final CheckedTreeNode myRootNode;
   private CoverageEngine myEngine;
 
@@ -54,15 +51,13 @@ public class CoverageSuiteChooserDialog extends DialogWrapper {
     initTree();
     mySuitesTree = new CheckboxTree(new SuitesRenderer(), myRootNode) {
       protected void installSpeedSearch() {
-        new TreeSpeedSearch(this, new Convertor<TreePath, String>() {
-          public String convert(TreePath path) {
-            final DefaultMutableTreeNode component = (DefaultMutableTreeNode)path.getLastPathComponent();
-            final Object userObject = component.getUserObject();
-            if (userObject instanceof CoverageSuite) {
-              return ((CoverageSuite)userObject).getPresentableName();
-            }
-            return userObject.toString();
+        new TreeSpeedSearch(this, path -> {
+          final DefaultMutableTreeNode component = (DefaultMutableTreeNode)path.getLastPathComponent();
+          final Object userObject = component.getUserObject();
+          if (userObject instanceof CoverageSuite) {
+            return ((CoverageSuite)userObject).getPresentableName();
           }
+          return userObject.toString();
         });
       }
     };
@@ -94,7 +89,7 @@ public class CoverageSuiteChooserDialog extends DialogWrapper {
     group.add(new AddExternalSuiteAction());
     group.add(new DeleteSuiteAction());
     group.add(new SwitchEngineAction());
-    return ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, group, true).getComponent();
+    return ActionManager.getInstance().createActionToolbar("CoverageSuiteChooser", group, true).getComponent();
   }
 
   @Override
@@ -271,7 +266,10 @@ public class CoverageSuiteChooserDialog extends DialogWrapper {
         }, myProject, null);
       if (file != null) {
         final CoverageRunner coverageRunner = getCoverageRunner(file);
-        LOG.assertTrue(coverageRunner != null);
+        if (coverageRunner == null) {
+          Messages.showErrorDialog(myProject, "No coverage runner available for " + file.getName(), CommonBundle.getErrorTitle());
+          return;
+        }
 
         final CoverageSuite coverageSuite = myCoverageManager
           .addExternalCoverageSuite(file.getName(), file.getTimeStamp(), coverageRunner,

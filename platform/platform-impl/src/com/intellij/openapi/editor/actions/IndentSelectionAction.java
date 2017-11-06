@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: May 13, 2002
- * Time: 10:29:01 PM
- */
 package com.intellij.openapi.editor.actions;
 
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -75,7 +69,7 @@ public class IndentSelectionAction extends EditorAction {
   }
 
   protected static boolean originalIsEnabled(Editor editor, boolean wantSelection) {
-    return (!wantSelection || hasSuitableSelection(editor)) && !editor.isOneLineMode();
+    return (!wantSelection || hasSuitableSelection(editor)) && !editor.isOneLineMode() && !editor.isViewer();
   }
 
   /**
@@ -112,8 +106,7 @@ public class IndentSelectionAction extends EditorAction {
       endIndex = document.getLineCount() - 1;
     }
     
-    PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(document);
-    int blockIndent = CodeStyleSettingsManager.getSettings(project).getIndentOptionsByFile(file).INDENT_SIZE;
+    int blockIndent = CodeStyleSettingsManager.getIndentOptions(project, document).INDENT_SIZE;
     doIndent(endIndex, startIndex, document, project, editor, blockIndent);
   }
 

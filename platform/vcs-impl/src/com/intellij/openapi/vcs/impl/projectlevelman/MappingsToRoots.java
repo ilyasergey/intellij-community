@@ -15,8 +15,8 @@
  */
 package com.intellij.openapi.vcs.impl.projectlevelman;
 
-import com.intellij.lifecycle.PeriodicalTasksCloser;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diff.impl.patch.formove.FilePathComparator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.FileIndexFacade;
@@ -27,6 +27,7 @@ import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -51,7 +52,7 @@ public class MappingsToRoots {
 
     Collections.sort(result, FilePathComparator.getInstance());
     if (! vcs.allowsNestedRoots()) {
-      final FileIndexFacade facade = PeriodicalTasksCloser.getInstance().safeGetService(myProject, FileIndexFacade.class);
+      final FileIndexFacade facade = ServiceManager.getService(myProject, FileIndexFacade.class);
       final List<VirtualFile> finalResult = result;
       ApplicationManager.getApplication().runReadAction(() -> {
         int i=1;
@@ -88,8 +89,8 @@ public class MappingsToRoots {
 
     Collections.sort(result, FilePathComparator.getInstance());
     if (addInnerModules) {
-      final FileIndexFacade facade = PeriodicalTasksCloser.getInstance().safeGetService(myProject, FileIndexFacade.class);
-      final List<VirtualFile> modules = DefaultVcsRootPolicy.getInstance(myProject).getDefaultVcsRoots(myMappings, vcsName);
+      final FileIndexFacade facade = ServiceManager.getService(myProject, FileIndexFacade.class);
+      final Collection<VirtualFile> modules = DefaultVcsRootPolicy.getInstance(myProject).getDefaultVcsRoots(myMappings, vcsName);
       ApplicationManager.getApplication().runReadAction(() -> {
         Iterator<VirtualFile> iterator = modules.iterator();
         while (iterator.hasNext()) {

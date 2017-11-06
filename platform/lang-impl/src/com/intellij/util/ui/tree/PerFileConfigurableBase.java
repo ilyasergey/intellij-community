@@ -32,6 +32,7 @@ import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
@@ -57,7 +58,6 @@ import javax.swing.*;
 import javax.swing.table.*;
 import java.awt.*;
 import java.awt.event.MouseEvent;
-import java.io.File;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -79,6 +79,7 @@ public abstract class PerFileConfigurableBase<T> implements SearchableConfigurab
   protected static final Key<String> CLEAR_TEXT = KeyWithDefaultValue.create("CLEAR_TEXT", "<Clear>");
   protected static final Key<String> NULL_TEXT = KeyWithDefaultValue.create("NULL_TEXT", "<None>");
   protected static final Key<Boolean> ADD_PROJECT_MAPPING = KeyWithDefaultValue.create("ADD_PROJECT_MAPPING", Boolean.TRUE);
+  protected static final Key<Boolean> ONLY_DIRECTORIES = KeyWithDefaultValue.create("ONLY_DIRECTORIES", Boolean.FALSE);
 
   protected final Project myProject;
   protected final PerFileMappings<T> myMappings;
@@ -216,7 +217,9 @@ public abstract class PerFileConfigurableBase<T> implements SearchableConfigurab
       myDefaultVals.put(prop.first, prop.second.produce());
       JPanel p = createActionPanel(null, new Value<T>() {
         @Override
-        public void commit() {}
+        public void commit() {
+          myModel.fireTableDataChanged();
+        }
 
         @Override
         public T get() {
@@ -242,7 +245,7 @@ public abstract class PerFileConfigurableBase<T> implements SearchableConfigurab
     Object selectedTarget = row >= 0 ? myModel.data.get(myTable.convertRowIndexToModel(row)).first : null;
     VirtualFile toSelect = myFileToSelect != null ? myFileToSelect :
                            ObjectUtils.tryCast(selectedTarget, VirtualFile.class);
-    FileChooserDescriptor descriptor = new FileChooserDescriptor(true, true, true, true, true, true);
+    FileChooserDescriptor descriptor = new FileChooserDescriptor(!param(ONLY_DIRECTORIES), true, true, true, true, true);
     FileChooser.chooseFiles(descriptor, myProject, myTable, toSelect, this::doAddFiles);
   }
 
@@ -289,8 +292,9 @@ public abstract class PerFileConfigurableBase<T> implements SearchableConfigurab
     for (Pair<Object, T> p : ContainerUtil.reverse(myModel.data)) {
       if (keyMatches(p.first, file, false) && p.second != null) return p.second;
     }
+    ProjectFileIndex index = ProjectFileIndex.getInstance(myProject);
     for (Trinity<String, Producer<T>, Consumer<T>> prop : ContainerUtil.reverse(myDefaultProps)) {
-      if (prop.first.startsWith("Project ") || prop.first.startsWith("Global ")) {
+      if (prop.first.startsWith("Project ") && file != null && index.isInContent(file) || prop.first.startsWith("Global ")) {
         T t = myDefaultVals.get(prop.first);
         if (t != null) return t;
       }
@@ -408,7 +412,7 @@ public abstract class PerFileConfigurableBase<T> implements SearchableConfigurab
   private static String keyToString(Object o) {
     if (o == null) return "";
     if (o instanceof String) return (String)o;
-    if (o instanceof VirtualFile) return ((VirtualFile)o).getPath();
+    if (o instanceof VirtualFile) return FileUtil.toSystemDependentName(((VirtualFile)o).getPath());
     return String.valueOf(o);
   }
 
@@ -632,11 +636,13 @@ public abstract class PerFileConfigurableBase<T> implements SearchableConfigurab
       renderer.setIcon(IconUtil.getIcon(file, Iconable.ICON_FLAG_READ_STATUS, myProject));
       VirtualFile parent = file.getParent();
       if (parent != null) {
-        String parentPath = FileUtil.toSystemDependentName(parent.getPath());
-        renderer.append(parentPath, SimpleTextAttributes.GRAY_ATTRIBUTES);
-        if (!parentPath.endsWith(File.separator)) {
-          renderer.append(File.separator, SimpleTextAttributes.GRAY_ATTRIBUTES);
-        }
+        VirtualFile dir = myProject.getBaseDir();
+        String projectPath = dir == null ? null : dir.getPath();
+        String parentPath = parent.getPath();
+        String relativePath = projectPath != null && parentPath.startsWith(projectPath) ?
+                              "..." + parentPath.substring(projectPath.length()) : parentPath;
+        String presentablePath = FileUtil.toSystemDependentName(relativePath + "/");
+        renderer.append(presentablePath, SimpleTextAttributes.GRAY_ATTRIBUTES);
       }
       renderer.append(file.getName(), SimpleTextAttributes.REGULAR_ATTRIBUTES);
     }

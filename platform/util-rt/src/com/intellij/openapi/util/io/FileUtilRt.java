@@ -40,7 +40,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  *
  * @since 12.0
  */
-@SuppressWarnings({"UtilityClassWithoutPrivateConstructor"})
+@SuppressWarnings("UtilityClassWithoutPrivateConstructor")
 public class FileUtilRt {
   private static final int KILOBYTE = 1024;
   private static final int DEFAULT_INTELLISENSE_LIMIT = 2500 * KILOBYTE;
@@ -63,13 +63,15 @@ public class FileUtilRt {
     }
   };
 
+  public static final int THREAD_LOCAL_BUFFER_LENGTH = 1024 * 20;
   protected static final ThreadLocal<byte[]> BUFFER = new ThreadLocal<byte[]>() {
+    @Override
     protected byte[] initialValue() {
-      return new byte[1024 * 20];
+      return new byte[THREAD_LOCAL_BUFFER_LENGTH];
     }
   };
 
-  private static String ourCanonicalTempPathCache = null;
+  private static String ourCanonicalTempPathCache;
 
   protected static final class NIOReflect {
     // NIO-reflection initialization placed in a separate class for lazy loading
@@ -234,14 +236,18 @@ public class FileUtilRt {
     return fileName.replace('\\', '/');
   }
 
+  /**
+   * Gets the relative path from the {@code base} to the {@code file} regardless existence or the type of the {@code base}.
+   * <p>
+   * NOTE: if the file(not directory) passed as the {@code base} the result can not be used as a relative path from the {@code base} parent directory to the {@code file}
+   *
+   * @param base the base
+   * @param file the file
+   * @return the relative path from the {@code base} to the {@code file} or {@code null}
+   */
   @Nullable
   public static String getRelativePath(File base, File file) {
     if (base == null || file == null) return null;
-
-    if (!base.isDirectory()) {
-      base = base.getParentFile();
-      if (base == null) return null;
-    }
 
     //noinspection FileEqualsUsage
     if (base.equals(file)) return ".";
@@ -727,7 +733,7 @@ public class FileUtilRt {
     }
     catch (InvocationTargetException e) {
       final Throwable cause = e.getCause();
-      if (cause == null || !NIOReflect.ourNoSuchFileExceptionClass.isInstance(cause)) {
+      if (!NIOReflect.ourNoSuchFileExceptionClass.isInstance(cause)) {
         logger().info(e);
         return false;
       }
@@ -877,29 +883,25 @@ public class FileUtilRt {
 
 
   public static int getUserFileSizeLimit() {
-    try {
-      return Integer.parseInt(System.getProperty("idea.max.intellisense.filesize")) * KILOBYTE;
-    }
-    catch (NumberFormatException e) {
-      return DEFAULT_INTELLISENSE_LIMIT;
-    }
+    return parseKilobyteProperty("idea.max.intellisense.filesize", DEFAULT_INTELLISENSE_LIMIT);
   }
 
   public static int getUserContentLoadLimit() {
-    try {
-      return Integer.parseInt(System.getProperty("idea.max.content.load.filesize")) * KILOBYTE;
-    }
-    catch (NumberFormatException e) {
-      return 20 * MEGABYTE;
-    }
+    return parseKilobyteProperty("idea.max.content.load.filesize", 20 * MEGABYTE);
   }
 
   private static int getLargeFilePreviewSize() {
+    return parseKilobyteProperty("idea.max.content.load.large.preview.size", DEFAULT_INTELLISENSE_LIMIT);
+  }
+
+  private static int parseKilobyteProperty(String key, int defaultValue) {
     try {
-      return Integer.parseInt(System.getProperty("idea.max.content.load.large.preview.size")) * KILOBYTE;
+      long i = Integer.parseInt(System.getProperty(key));
+      if (i < 0) return Integer.MAX_VALUE;
+      return (int) Math.min(i * KILOBYTE, Integer.MAX_VALUE);
     }
     catch (NumberFormatException e) {
-      return DEFAULT_INTELLISENSE_LIMIT;
+      return defaultValue;
     }
   }
 

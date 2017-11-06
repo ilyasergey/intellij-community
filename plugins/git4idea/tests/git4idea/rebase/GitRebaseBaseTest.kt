@@ -29,7 +29,7 @@ abstract class GitRebaseBaseTest : GitPlatformTest() {
 
   protected val LOCAL_CHANGES_WARNING : String = "Note that some local changes were <a>stashed</a> before rebase."
 
-  override fun createRepository(rootDir: String) = createRepository(myProject, rootDir, false)
+  override fun createRepository(rootDir: String) = createRepository(project, rootDir, false)
 
   override fun getDebugLogCategories() = super.getDebugLogCategories().plus("#git4idea.rebase")
 
@@ -106,14 +106,9 @@ abstract class GitRebaseBaseTest : GitPlatformTest() {
 
   protected fun GitRepository.`make rebase fail after resolving conflicts`() {
     vcsHelper.onMerge {
-      resolveConflicts(this)
-      myGit.setShouldRebaseFail { true }
+      this.resolveConflicts()
+      git.setShouldRebaseFail { true }
     }
-  }
-
-  protected fun resolveConflicts(repository: GitRepository) {
-    cd(repository)
-    git("add -u .")
   }
 
   protected fun assertSuccessfulRebaseNotification(message: String) : Notification {
@@ -219,7 +214,7 @@ abstract class GitRebaseBaseTest : GitPlatformTest() {
           """)
   }
 
-  class LocalChange(val repository: GitRepository, val filePath: String, val content: String = "Some content") {
+  inner class LocalChange(val repository: GitRepository, val filePath: String, val content: String = "Some content") {
     fun generate() : LocalChange {
       cd(repository)
       file(filePath).create(content).add()

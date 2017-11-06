@@ -18,6 +18,8 @@ package com.intellij.refactoring.move.moveClassesOrPackages;
 import com.intellij.ide.util.EditorHelper;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Comparing;
@@ -83,8 +85,12 @@ public class MoveClassesOrPackagesProcessor extends BaseRefactoringProcessor {
     super(project);
     final Set<PsiElement> toMove = new LinkedHashSet<>();
     for (PsiElement element : elements) {
+      PsiUtilCore.ensureValid(element);
       if (element instanceof PsiClassOwner) {
-        Collections.addAll(toMove, ((PsiClassOwner)element).getClasses());
+        for (PsiClass aClass : ((PsiClassOwner)element).getClasses()) {
+          PsiUtilCore.ensureValid(aClass);
+          toMove.add(aClass);
+        }
       } else {
         toMove.add(element);
       }
@@ -183,7 +189,7 @@ public class MoveClassesOrPackagesProcessor extends BaseRefactoringProcessor {
                                              allUsages.toArray(new UsageInfo[allUsages.size()]));
     final UsageInfo[] usageInfos = allUsages.toArray(new UsageInfo[allUsages.size()]);
     detectPackageLocalsMoved(usageInfos, myConflicts);
-    detectPackageLocalsUsed(myConflicts);
+    detectPackageLocalsUsed(myConflicts, myElementsToMove, myTargetPackage);
     allUsages.removeAll(usagesToSkip);
     return UsageViewUtil.removeDuplicatedUsages(allUsages.toArray(new UsageInfo[allUsages.size()]));
   }
@@ -237,13 +243,14 @@ public class MoveClassesOrPackagesProcessor extends BaseRefactoringProcessor {
     return false;
   }
 
-  private void detectPackageLocalsUsed(final MultiMap<PsiElement, String> conflicts) {
-    PackageLocalsUsageCollector visitor = new PackageLocalsUsageCollector(myElementsToMove, myTargetPackage, conflicts);
+  static void detectPackageLocalsUsed(final MultiMap<PsiElement, String> conflicts,
+                                      PsiElement[] elementsToMove,
+                                      PackageWrapper targetPackage) {
+    PackageLocalsUsageCollector visitor = new PackageLocalsUsageCollector(elementsToMove, targetPackage, conflicts);
 
-    for (PsiElement element : myElementsToMove) {
-      if (element instanceof PsiClass) {
-        PsiClass aClass = (PsiClass)element;
-        aClass.accept(visitor);
+    for (PsiElement element : elementsToMove) {
+      if (element.getContainingFile() != null) {
+        element.accept(visitor);
       }
     }
   }
@@ -447,11 +454,15 @@ public class MoveClassesOrPackagesProcessor extends BaseRefactoringProcessor {
 
   protected void performRefactoring(@NotNull UsageInfo[] usages) {
     // If files are being moved then I need to collect some information to delete these
-    // filese from CVS. I need to know all common parents of the moved files and releative
+    // files from CVS. I need to know all common parents of the moved files and relative
     // paths.
 
     // Move files with correction of references.
 
+    ProgressIndicator indicator = ProgressManager.getInstance().getProgressIndicator();
+    if (indicator != null) {
+      indicator.setIndeterminate(false);
+    }
     try {
       final Map<PsiClass, Boolean> allClasses = new HashMap<>();
       for (PsiElement element : myElementsToMove) {
@@ -511,13 +522,13 @@ public class MoveClassesOrPackagesProcessor extends BaseRefactoringProcessor {
         myElementsToMove[idx] = element;
       }
 
+      myNonCodeUsages = CommonMoveUtil.retargetUsages(usages, oldToNewElementsMapping);
+
       for (PsiElement element : myElementsToMove) {
         if (element instanceof PsiClass) {
           MoveClassesOrPackagesUtil.finishMoveClass((PsiClass)element);
         }
       }
-
-      myNonCodeUsages = CommonMoveUtil.retargetUsages(usages, oldToNewElementsMapping);
 
       if (myOpenInEditor) {
         EditorHelper.openFilesInEditor(myElementsToMove);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.RoamingType;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
+import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.FileEditorManagerListener;
@@ -37,9 +38,9 @@ import com.intellij.openapi.fileEditor.impl.FileEditorManagerImpl;
 import com.intellij.openapi.fileEditor.impl.NonProjectFileWritingAccessExtension;
 import com.intellij.openapi.fileTypes.*;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
-import com.intellij.openapi.project.ProjectManagerAdapter;
 import com.intellij.openapi.util.Iconable;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
@@ -50,6 +51,7 @@ import com.intellij.psi.LanguageSubstitutor;
 import com.intellij.psi.LanguageSubstitutors;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.search.*;
+import com.intellij.psi.stubs.StubElementTypeHolderEP;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.usages.impl.rules.UsageType;
 import com.intellij.usages.impl.rules.UsageTypeProvider;
@@ -66,6 +68,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.ConcurrentMap;
 
 @State(name = "ScratchFileService", storages = @Storage(value = "scratches.xml", roamingType = RoamingType.DISABLED))
 public class ScratchFileServiceImpl extends ScratchFileService implements PersistentStateComponent<Element>{
@@ -83,6 +86,11 @@ public class ScratchFileServiceImpl extends ScratchFileService implements Persis
       }
     });
     initFileOpenedListener(application.getMessageBus());
+
+    // make sure languages are initialized to avoid PerFileMappingsBase.handleUnknownMapping()
+    for (StubElementTypeHolderEP holderEP : Extensions.getExtensions(StubElementTypeHolderEP.EP_NAME)) {
+      holderEP.initialize();
+    }
   }
 
   @NotNull
@@ -94,7 +102,7 @@ public class ScratchFileServiceImpl extends ScratchFileService implements Persis
   @Nullable
   @Override
   public RootType getRootType(@Nullable VirtualFile file) {
-    if (file == null) return null;
+    if (file == null || !file.isInLocalFileSystem()) return null;
     VirtualFile directory = file.isDirectory() ? file : file.getParent();
     RootType result = myIndex.getInfoForFile(directory);
     return result == NULL_TYPE ? null : result;
@@ -124,20 +132,15 @@ public class ScratchFileServiceImpl extends ScratchFileService implements Persis
         return FileDocumentManager.getInstance().getDocument(file) != null;
       }
     };
-    ProjectManagerAdapter projectListener = new ProjectManagerAdapter() {
-      @Override
-      public void projectOpened(Project project) {
-        project.getMessageBus().connect(project).subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, editorListener);
-        FileEditorManager editorManager = FileEditorManager.getInstance(project);
-        for (VirtualFile virtualFile : editorManager.getOpenFiles()) {
-          editorListener.fileOpened(editorManager, virtualFile);
-        }
-      }
-    };
+
+    // handle all previously opened projects (as we are service, lazily created)
     for (Project project : ProjectManager.getInstance().getOpenProjects()) {
-      projectListener.projectOpened(project);
+      FileEditorManager editorManager = FileEditorManager.getInstance(project);
+      for (VirtualFile virtualFile : editorManager.getOpenFiles()) {
+        editorListener.fileOpened(editorManager, virtualFile);
+      }
     }
-    messageBus.connect().subscribe(ProjectManager.TOPIC, projectListener);
+    messageBus.connect().subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, editorListener);
   }
 
   @NotNull
@@ -218,7 +221,7 @@ public class ScratchFileServiceImpl extends ScratchFileService implements Persis
     }
   }
 
-  public static class FilePresentation implements FileIconProvider, EditorTabTitleProvider {
+  public static class FilePresentation implements FileIconProvider, EditorTabTitleProvider, DumbAware {
 
     @Nullable
     @Override
@@ -295,7 +298,7 @@ public class ScratchFileServiceImpl extends ScratchFileService implements Persis
         return VfsUtil.createChildSequent(LocalFileSystem.getInstance(), dir, fileName, StringUtil.notNullize(ext));
       }
       else {
-        return dir.createChildData(LocalFileSystem.getInstance(), fileNameExt);
+        return dir.findOrCreateChildData(LocalFileSystem.getInstance(), fileNameExt);
       }
     });
   }
@@ -312,12 +315,12 @@ public class ScratchFileServiceImpl extends ScratchFileService implements Persis
       @NotNull
       @Override
       public String getDisplayName() {
-        return "Scratches and Consoles";
+        return ScratchesNamedScope.NAME;
       }
 
       @Override
       public boolean contains(@NotNull VirtualFile file) {
-        RootType rootType = file.getFileType() == ScratchFileType.INSTANCE ? service.getRootType(file) : null;
+        RootType rootType = service.getRootType(file);
         return  rootType != null && !rootType.isHidden();
       }
 
@@ -366,13 +369,8 @@ public class ScratchFileServiceImpl extends ScratchFileService implements Persis
   }
 
   public static class UsageTypeExtension implements UsageTypeProvider {
-    private static final ConcurrentFactoryMap<RootType, UsageType> ourUsageTypes = new ConcurrentFactoryMap<RootType, UsageType>() {
-      @Nullable
-      @Override
-      protected UsageType create(RootType key) {
-        return new UsageType("Usage in " + key.getDisplayName());
-      }
-    };
+    private static final ConcurrentMap<RootType, UsageType> ourUsageTypes =
+      ConcurrentFactoryMap.createMap(key -> new UsageType("Usage in " + key.getDisplayName()));
 
     @Nullable
     @Override

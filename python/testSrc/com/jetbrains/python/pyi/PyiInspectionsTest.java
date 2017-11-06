@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,10 @@
 package com.jetbrains.python.pyi;
 
 import com.intellij.codeInspection.LocalInspectionTool;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.psi.PsiDocumentManager;
+import com.intellij.psi.PsiFile;
 import com.jetbrains.python.fixtures.PyTestCase;
 import com.jetbrains.python.inspections.*;
 import com.jetbrains.python.inspections.unresolvedReference.PyUnresolvedReferencesInspection;
@@ -26,6 +29,18 @@ import org.jetbrains.annotations.NotNull;
  * @author vlan
  */
 public class PyiInspectionsTest extends PyTestCase {
+
+  private Disposable myRootsDisposable;
+
+  @Override
+  protected void tearDown() throws Exception {
+    if (myRootsDisposable != null) {
+      Disposer.dispose(myRootsDisposable);
+      myRootsDisposable = null;
+    }
+    super.tearDown();
+  }
+
   private void doTestByExtension(@NotNull Class<? extends LocalInspectionTool> inspectionClass, @NotNull String extension) {
     doTestByFileName(inspectionClass, getTestName(false) + extension);
   }
@@ -34,9 +49,11 @@ public class PyiInspectionsTest extends PyTestCase {
     myFixture.copyDirectoryToProject("pyi/inspections/" + getTestName(true), "");
     myFixture.copyDirectoryToProject("typing", "");
     PsiDocumentManager.getInstance(myFixture.getProject()).commitAllDocuments();
-    myFixture.configureByFile(fileName);
+    final PsiFile file = myFixture.configureByFile(fileName);
     myFixture.enableInspections(inspectionClass);
     myFixture.checkHighlighting(true, false, true);
+    assertProjectFilesNotParsed(file);
+    assertSdkRootsNotParsed(file);
   }
 
   private void doPyTest(@NotNull Class<? extends LocalInspectionTool> inspectionClass) {
@@ -60,6 +77,10 @@ public class PyiInspectionsTest extends PyTestCase {
   }
 
   public void testOverloads() {
+    doPyTest(PyTypeCheckerInspection.class);
+  }
+
+  public void testOverloadsWithDifferentNumberOfParameters() {
     doPyTest(PyTypeCheckerInspection.class);
   }
 
@@ -99,7 +120,7 @@ public class PyiInspectionsTest extends PyTestCase {
   }
 
   public void testPyiRelativeImports() {
-    PyiTypeTest.addPyiStubsToContentRoot(myFixture);
+    myRootsDisposable = PyiTypeTest.addPyiStubsToContentRoot(myFixture);
     doTestByFileName(PyUnresolvedReferencesInspection.class, "package_with_stub_in_path/a.pyi");
   }
 }

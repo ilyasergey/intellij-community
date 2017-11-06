@@ -68,7 +68,7 @@ class SmartPointerTracker {
     return true;
   }
 
-  private boolean isActual(VirtualFile file, Key<SmartPointerTracker> key) {
+  boolean isActual(VirtualFile file, Key<SmartPointerTracker> key) {
     return file.getUserData(key) == this;
   }
 
@@ -94,17 +94,24 @@ class SmartPointerTracker {
     nextAvailableIndex = index;
   }
 
-  synchronized void removeReference(@NotNull PointerReference reference) {
+  synchronized void removeReference(@NotNull PointerReference reference, @NotNull Key<SmartPointerTracker> expectedKey) {
     int index = reference.index;
     if (index < 0) return;
 
-    assert isActual(reference.file, reference.key);
+    assertActual(expectedKey, reference.file, reference.key);
     assert references[index] == reference : "At " + index + " expected " + reference + ", found " + references[index];
     references[index].index = -1;
     references[index] = null;
     if (--size == 0) {
       reference.file.replace(reference.key, this, null);
     }
+  }
+
+  private void assertActual(Key<SmartPointerTracker> expectedKey, VirtualFile file, Key<SmartPointerTracker> refKey) {
+    assert isActual(file, refKey) : "Smart pointer list mismatch mismatch:" +
+                                    " ref.key=" + expectedKey +
+                                    ", manager.key=" + refKey +
+                                    (file.getUserData(refKey) != null ? "; has another pointer list" : "");
   }
 
   private void processAlivePointers(@NotNull Processor<SmartPsiElementPointerImpl> processor) {
@@ -115,7 +122,7 @@ class SmartPointerTracker {
       assert isActual(ref.file, ref.key);
       SmartPsiElementPointerImpl pointer = ref.get();
       if (pointer == null) {
-        removeReference(ref);
+        removeReference(ref, ref.key);
         continue;
       }
 
@@ -178,12 +185,23 @@ class SmartPointerTracker {
     });
   }
 
-  // after reparse and its complex tree diff, the element might have "moved" to other range
-  // but if an element of the same type can still be found at the old range, let's point there
   private static <E extends PsiElement> void updatePointerTarget(@NotNull SmartPsiElementPointerImpl<E> pointer, @Nullable Segment pointerRange) {
     E cachedElement = pointer.getCachedElement();
-    if (cachedElement == null || cachedElement.isValid() && pointerRange != null && pointerRange.equals(cachedElement.getTextRange())) {
+    if (cachedElement == null) {
       return;
+    }
+
+    if (cachedElement.isValid()) {
+      if (pointerRange == null) {
+        // document change could be damaging, but if PSI survived after reparse, let's point to it
+        ((SelfElementInfo)pointer.getElementInfo()).switchToAnchor(cachedElement);
+        return;
+      }
+      // after reparse and its complex tree diff, the element might have "moved" to other range
+      // but if an element of the same type can still be found at the old range, let's point there
+      if (pointerRange.equals(cachedElement.getTextRange())) {
+        return;
+      }
     }
 
     pointer.cacheElement(pointer.doRestoreElement());
@@ -235,7 +253,7 @@ class SmartPointerTracker {
 
       SmartPointerTracker pointers = reference.file.getUserData(reference.key);
       if (pointers != null) {
-        pointers.removeReference(reference);
+        pointers.removeReference(reference, reference.key);
       }
     }
   }
